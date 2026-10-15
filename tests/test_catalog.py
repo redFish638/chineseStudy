@@ -44,7 +44,8 @@ def test_catalog_selection_preview_confirmation_and_practice(teacher_client):
     assert '原文依据：' in point['description'] and '拓展：' in point['description']
     candidates = c.get(f"/api/points/{point['id']}/practice-candidates").json()['items']
     assert {x['level'] for x in candidates} == {'基础', '巩固', '拓展'}
-    assert all('非高考真题' in x['source'] for x in candidates)
+    assert all('非高考真题' in x['source'] or 'GAOKAO-Bench' in x['source'] for x in candidates)
+    assert all(x['material'] != catalog.get_entry('deng-gao')['content'] for x in candidates)
     assert c.post('/api/catalog/no-such-entry/open').status_code == 404
 
 

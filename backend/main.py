@@ -1,5 +1,6 @@
 """知语教学工作流。默认本地 SQLite，DATABASE_URL 支持 PostgreSQL/MySQL。"""
 import hashlib
+import json
 import hmac
 import os
 import secrets
@@ -8,12 +9,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 
-from . import analysis, catalog
+from . import analysis, catalog, bank
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, create_engine, delete, select
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, create_engine, delete, select, func, or_
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,6 +84,76 @@ class Submission(Base):
     issue: Mapped[str] = mapped_column(String(300), default='')
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
 
+class BankMaterial(Base):
+    __tablename__ = 'zhiyu_bank_materials'
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    author: Mapped[str] = mapped_column(String(100))
+    genre: Mapped[str] = mapped_column(String(20), index=True)
+    source_type: Mapped[str] = mapped_column(String(20), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    source_url: Mapped[str] = mapped_column(Text)
+    source_label: Mapped[str] = mapped_column(Text)
+    year: Mapped[str] = mapped_column(String(20))
+    region: Mapped[str] = mapped_column(String(100))
+    review: Mapped[str] = mapped_column(String(200))
+    tags_json: Mapped[str] = mapped_column(Text)
+    notes_json: Mapped[str] = mapped_column(Text)
+    revision: Mapped[str] = mapped_column(String(64))
+    managed: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class BankExercise(Base):
+    __tablename__ = 'zhiyu_bank_exercises'
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    material_id: Mapped[str] = mapped_column(ForeignKey('zhiyu_bank_materials.id'), index=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    reference: Mapped[str] = mapped_column(Text)
+    analysis: Mapped[str] = mapped_column(Text)
+    max_score: Mapped[int] = mapped_column(Integer)
+    level: Mapped[str] = mapped_column(String(20))
+    tags_json: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(200))
+
+
+def bank_exercise_dict(row):
+    return {**{key:getattr(row,key) for key in ['id','prompt','reference','analysis','max_score','level','source']},
+            'tags':json.loads(row.tags_json)}
+
+
+def bank_material_dict(row, questions=()):
+    return {**{key:getattr(row,key) for key in ['id','title','author','genre','source_type','body','content_hash','source_url','source_label','year','region','review']},
+            'managed':row.managed,'tags':json.loads(row.tags_json), 'notes':json.loads(row.notes_json),
+            'questions':[bank_exercise_dict(x) for x in questions]}
+
+
+def assign_bank_material(row, record):
+    for key in ['title','author','genre','source_type','body','content_hash','source_url','source_label','year','region','review','revision']:
+        setattr(row,key,record[key])
+    row.tags_json=json.dumps(record['tags'],ensure_ascii=False)
+    row.notes_json=json.dumps(record['notes'],ensure_ascii=False)
+
+
+def add_bank_exercise(db, material_id, item):
+    db.add(BankExercise(id=item['id'],material_id=material_id,
+        **{key:item[key] for key in ['prompt','reference','analysis','max_score','level','source']},
+        tags_json=json.dumps(item['tags'],ensure_ascii=False)))
+
+
+def seed_material_bank(db):
+    existing={row.id:row for row in db.scalars(select(BankMaterial))}
+    for record in bank.seed_records():
+        row=existing.get(record['id'])
+        if row and (not row.managed or row.revision==record['revision']): continue
+        if not row:
+            row=BankMaterial(id=record['id'],managed=True)
+            db.add(row)
+        assign_bank_material(row,record)
+        db.flush()
+        db.execute(delete(BankExercise).where(BankExercise.material_id==row.id))
+        for question in record['questions']: add_bank_exercise(db,row.id,question)
+
+
 def digest(password, salt=None):
     salt = salt or secrets.token_hex(16)
     value = hashlib.scrypt(password.encode(), salt=salt.encode(), n=16384, r=8, p=1).hex()
@@ -100,7 +171,8 @@ async def lifespan(app):
             if len(password) < 12:
                 raise RuntimeError('首次启动需设置 ZHIYU_ADMIN_PASSWORD（至少12位）；不要使用服务器登录密码。')
             db.add(Admin(username=os.getenv('ZHIYU_ADMIN_USER', 'teacher'), password_hash=digest(password)))
-            db.commit()
+        seed_material_bank(db)
+        db.commit()
     yield
 
 app = FastAPI(title='知语教学 API', lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -212,8 +284,9 @@ def add_point(body: PointIn, db: Session = Depends(db_session)):
     return {'id': row.id}
 
 @app.get('/api/catalog', dependencies=[Depends(teacher)])
-def article_catalog():
+def article_catalog(db:Session=Depends(db_session)):
     return {'items': catalog.listing(), 'ai_configured': analysis.configured(),
+            'bank_materials':db.scalar(select(func.count()).select_from(BankMaterial)),
             'resources': catalog.RESOURCES,
             'scope': '跨版本文章库起步版；篇目册次需与任教教材核对，非所有版本完整教材或商业题库。'}
 
@@ -229,6 +302,141 @@ def open_catalog(entry_id: str, db: Session = Depends(db_session)):
         db.commit()
     return {'id': article.id}
 
+def all_bank_records(db):
+    questions={}
+    for question in db.scalars(select(BankExercise)):
+        questions.setdefault(question.material_id,[]).append(question)
+    return [bank_material_dict(row,questions.get(row.id,())) for row in db.scalars(select(BankMaterial))]
+
+
+def bank_summary(record):
+    summary={key:record[key] for key in ['id','title','author','genre','source_type','source_url','source_label','year','region','review','tags']}
+    summary.update(preview=record['body'][:180],question_count=len(record['questions']),
+                   levels=sorted({q['level'] for q in record['questions']}),has_notes=bool(record['notes']))
+    for key in ['match_tags','match_reason','match_basis','match_evidence','match_explanation']:
+        if key in record: summary[key]=record[key]
+    return summary
+
+
+def filter_bank_records(records,q='',genre='',source_type='',tag='',year='',has_questions=False):
+    if source_type and source_type not in bank.SOURCE_TYPES: raise HTTPException(422,'未知来源分类')
+    if tag and tag not in bank.TAG_LABELS: raise HTTPException(422,'未知知识点标签')
+    if len(q)>200: raise HTTPException(422,'搜索词最多200字')
+    return [r for r in records if (not q or q.lower() in (r['title']+' '+r['author']+' '+r['body']+' '+r['region']).lower())
+            and (not genre or r['genre']==genre) and (not source_type or r['source_type']==source_type)
+            and (not tag or tag in r['tags']) and (not year or r['year']==year)
+            and (not has_questions or r['questions'])]
+
+
+@app.get('/api/bank',dependencies=[Depends(teacher)])
+def material_bank(q:str='',genre:str='',source_type:str='',tag:str='',year:str='',has_questions:bool=False,
+                  offset:int=0,limit:int=20,db:Session=Depends(db_session)):
+    if not 0<=offset or not 1<=limit<=50: raise HTTPException(422,'分页参数无效')
+    records=all_bank_records(db)
+    filtered=filter_bank_records(records,q,genre,source_type,tag,year,has_questions)
+    filtered.sort(key=lambda r:(r['source_type'],r['title'],r['id']))
+    return {'items':[bank_summary(r) for r in filtered[offset:offset+limit]],'total':len(filtered),
+            'offset':offset,'limit':limit,'stats':{'materials':len(records),'questions':sum(len(r['questions']) for r in records),
+            'tagged':sum(bool(r['tags']) for r in records),'sources':{key:sum(r['source_type']==key for r in records) for key in bank.SOURCE_TYPES}},
+            'tags':[{'id':key,'name':value} for key,value in bank.TAG_LABELS.items()],
+            'source_types':bank.SOURCE_TYPES,'years':sorted({r['year'] for r in records if r['year']},reverse=True)}
+
+
+@app.get('/api/bank/materials/{id}',dependencies=[Depends(teacher)])
+def bank_detail(id:str,db:Session=Depends(db_session)):
+    row=require(db,BankMaterial,id)
+    return bank_material_dict(row,list(db.scalars(select(BankExercise).where(BankExercise.material_id==id))))
+
+
+@app.post('/api/bank/materials/{id}/open',dependencies=[Depends(teacher)])
+def open_bank_material(id:str,db:Session=Depends(db_session)):
+    row=require(db,BankMaterial,id)
+    article=db.scalar(select(Article).where(Article.title==row.title,Article.genre==row.genre,Article.content==row.body))
+    if not article:
+        article=Article(title=row.title,genre=row.genre,content=row.body)
+        db.add(article);db.commit()
+    return {'id':article.id,'has_analysis':bool(json.loads(row.notes_json))}
+
+
+@app.get('/api/points/{id}/related-materials',dependencies=[Depends(teacher)])
+def related_materials(id:int,q:str='',genre:str='',source_type:str='',tag:str='',year:str='',has_questions:bool=False,
+                      offset:int=0,limit:int=12,db:Session=Depends(db_session)):
+    if offset<0 or not 1<=limit<=50: raise HTTPException(422,'分页参数无效')
+    point=require(db,Point,id);article=require(db,Article,point.article_id)
+    records=filter_bank_records(all_bank_records(db),q,genre,source_type,tag,year,has_questions)
+    query_tags,ranked=bank.recommend(records,point.name,point.description,article.content,article.title,article.genre,tag)
+    return {'point':{'id':point.id,'name':point.name,'article':article.title},'query_tags':query_tags,
+            'items':[bank_summary(r) for r in ranked[offset:offset+limit]],'total':len(ranked),
+            'offset':offset,'limit':limit,'notice':'按统一知识点标签关联，已排除当前作品并按正文去重；不是AI相似度评分，候选材料须教师核对。'}
+
+
+@app.get('/api/articles/{id}/related-materials',dependencies=[Depends(teacher)])
+def article_related(id:int,limit:int=3,db:Session=Depends(db_session)):
+    if not 1<=limit<=5: raise HTTPException(422,'每个知识点最多预览5篇')
+    article=require(db,Article,id)
+    records=all_bank_records(db)
+    result=[]
+    for point in db.scalars(select(Point).where(Point.article_id==id)):
+        tags,ranked=bank.recommend(records,point.name,point.description,article.content,article.title,article.genre)
+        result.append({'point_id':point.id,'name':point.name,'tags':tags,'total':len(ranked),
+                       'items':[bank_summary(r) for r in ranked[:limit]]})
+    return {'items':result}
+
+class BankImportQuestion(InputModel):
+    prompt:str=Field(min_length=1,max_length=10000)
+    reference:str=Field(default='',max_length=10000)
+    analysis:str=Field(default='',max_length=10000)
+    max_score:int=Field(default=10,ge=1,le=100)
+    level:str=Field(default='未分层',pattern='^(未分层|基础|巩固|拓展)$')
+
+class BankImportMaterial(InputModel):
+    title:str=Field(min_length=1,max_length=200)
+    author:str=Field(default='',max_length=100)
+    genre:str=Field(pattern='^(阅读|诗歌|文言文)$')
+    source_type:str=Field(pattern='^(textbook|gaokao|mock|public|bank)$')
+    source_label:str=Field(min_length=1,max_length=500)
+    source_url:HttpUrl|None=None
+    year:str=Field(default='',max_length=20)
+    region:str=Field(default='',max_length=100)
+    body:str=Field(min_length=1,max_length=15000)
+    tags:list[str]=Field(default_factory=list,max_length=18)
+    questions:list[BankImportQuestion]=Field(default_factory=list,max_length=20)
+
+class BankImportIn(InputModel):
+    materials:list[BankImportMaterial]=Field(min_length=1,max_length=100)
+
+BANK_IMPORT_LOCK=threading.Lock()
+
+@app.post('/api/bank/import',dependencies=[Depends(teacher)])
+def import_bank(body:BankImportIn,db:Session=Depends(db_session)):
+    if len(body.model_dump_json().encode())>800000: raise HTTPException(413,'单次导入最多800KB，请分批导入')
+    if any(tag not in bank.TAG_LABELS for m in body.materials for tag in m.tags):
+        raise HTTPException(422,'包含未知标签，请使用题库页列出的标签ID')
+    created=questions_added=0
+    with BANK_IMPORT_LOCK:
+        for item in body.materials:
+            source_url=str(item.source_url) if item.source_url else ''
+            fingerprint=bank.body_hash(item.body)
+            row=db.scalar(select(BankMaterial).where(BankMaterial.content_hash==fingerprint,
+                BankMaterial.source_type==item.source_type,BankMaterial.source_url==source_url,
+                BankMaterial.year==item.year,BankMaterial.region==item.region,BankMaterial.managed==False))
+            if not row:
+                record=bank.material_record('import:'+secrets.token_hex(16),item.title,item.author,item.genre,item.source_type,
+                    item.body,source_url,item.source_label,[],[],year=item.year,region=item.region,tags=list(dict.fromkeys(item.tags)),
+                    review='教师导入，来源及考试分类未外部核验')
+                row=BankMaterial(id=record['id'],managed=False)
+                assign_bank_material(row,record);db.add(row);db.flush();created+=1
+            else:
+                row.tags_json=json.dumps(list(dict.fromkeys(json.loads(row.tags_json)+item.tags)),ensure_ascii=False)
+            for q in item.questions:
+                key=hashlib.sha256(json.dumps([q.prompt,q.reference],ensure_ascii=False).encode()).hexdigest()[:24]
+                id=row.id+':'+key
+                if db.get(BankExercise,id): continue
+                add_bank_exercise(db,row.id,{'id':id,**q.model_dump(),'tags':item.tags,'source':'教师导入，未外部核验'})
+                db.flush();questions_added+=1
+        db.commit()
+    return {'created':created,'merged':len(body.materials)-created,'questions_added':questions_added}
+
 class AnalyzeIn(InputModel):
     mode: str = Field(default='auto', pattern='^(auto|ai)$')
 
@@ -236,7 +444,17 @@ class AnalyzeIn(InputModel):
 def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session)):
     article = require(db, Article, id)
     try:
-        result = analysis.analyze(article, body.mode)
+        matched = db.scalar(select(BankMaterial).where(BankMaterial.body == article.content))
+        if body.mode != 'ai' and matched and not catalog.match_entry(article.content,article.genre):
+            notes=json.loads(matched.notes_json)
+            if not notes:
+                raise ValueError('该文集篇目暂无教研解析；可作为关联阅读材料，或配置AI后分析。')
+            points=[analysis.AnalysisPoint(name=n['name'],evidence=n['evidence'],learning_goal='能结合原文分析“'+n['name']+'”。',
+                explanation=n['explanation'][:600] or '据来源解析标签，需教师复核。',foundation='理解相关关键词句',
+                consolidation='结合原题写出依据与分析',extension='比较其他篇目中的相同知识点').model_dump() for n in notes[:12]]
+            result={'source':'公开题目解析提取（非AI）','points':points,'notice':'基于来源解析的标签与引文定位，须教师复核。'}
+        else:
+            result = analysis.analyze(article, body.mode)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     except RuntimeError as exc:
@@ -314,10 +532,22 @@ def edit_question(id: int, body: QuestionIn, db: Session = Depends(db_session)):
 
 @app.get('/api/points/{id}/practice-candidates', dependencies=[Depends(teacher)])
 def practice_candidates(id: int, db: Session = Depends(db_session)):
-    point = require(db, Point, id)
-    article = require(db, Article, point.article_id)
-    return {'items': catalog.practice_candidates(point.name, article.genre),
-            'notice': '按知识点方向匹配自编练习草稿，不是真题；教师核对适配性并完善参考答案和评分标准后保存。'}
+    point=require(db,Point,id)
+    article=require(db,Article,point.article_id)
+    query_tags,ranked=bank.recommend(all_bank_records(db),point.name,point.description,article.content,article.title,article.genre)
+    items=[]
+    for record in ranked:
+        for question in record['questions']:
+            if not set(question['tags']).intersection(query_tags): continue
+            original=record['source_type']=='gaokao'
+            items.append({'id':question['id'],'title':record['title'],'level':'巩固' if question['level']=='未分层' else question['level'],
+                'material':record['body'],'prompt':question['prompt'],'reference':question['reference'],
+                'rubric':question['analysis'],'max_score':question['max_score'],'matched_point':point.name,
+                'source':('GAOKAO-Bench公开整理；原题未分层，暂选巩固为系统建议，需教师调整' if original else
+                          '应用自编练习草稿，非高考真题' if record['managed'] else record['source_label'])})
+            if len(items)>=36: break
+        if len(items)>=36: break
+    return {'items':items,'notice':'已从独立题库自动匹配其他作品及配套题，排除当前文章。原题未分层时暂选巩固；请核对具体小题考点、答案与分值。'}
 
 class AssignmentIn(InputModel):
     question_id: int
