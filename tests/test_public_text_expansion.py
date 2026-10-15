@@ -34,10 +34,10 @@ def test_new_public_texts_have_whole_boundaries_and_exclude_neighbor_and_publish
 
 def test_every_remaining_directory_has_original_guide_and_official_reading_entry(teacher_client):
     c=teacher_client;data=c.get('/api/catalog').json()
-    assert data['readable']==data['analyzable']==134
-    assert data['guided_directories']==58
+    assert data['readable']==data['analyzable']==136
+    assert data['guided_directories']==56
     missing=[x for x in data['items'] if not x['available']]
-    assert len(missing)==58
+    assert len(missing)==56
     for row in missing:
         assert row['has_guide'] and row['guide']['topics'] and not row['has_analysis']
         assert row['content']==''
@@ -93,3 +93,20 @@ def test_more_public_originals_have_grounded_analysis_and_full_book_is_separate(
     assert c.get('/api/catalog/'+ham['id']+'/full-text').status_code == 404
     c.cookies.clear()
     assert c.get('/api/catalog/'+red['id']+'/full-text').status_code == 401
+
+
+def test_second_pass_public_originals_and_quote_grounded_notes():
+    from backend.catalog import CATALOG
+    from backend.builtin_notes import AUTHORED
+    for title,opening,ending in [
+        ('中国建筑的特征','中国的建筑体系','中得到参考的图版。'),
+        ('茶馆（节选）','第一幕','——幕落'),
+    ]:
+        item=next(x for x in CATALOG if x['title']==title)
+        assert item['available'] and item['has_analysis']
+        assert item['content'].startswith(opening) and item['content'].endswith(ending)
+        assert '学习提示' not in item['content'] and '〔葱岭〕' not in item['content']
+        assert len(AUTHORED[title])==3
+        assert all(point['evidence'] in item['content'] for point in AUTHORED[title])
+    changsha=next(x for x in CATALOG if x['title']=='沁园春·长沙')
+    assert not changsha['available'] and changsha['reading_url'].endswith('#page=9')

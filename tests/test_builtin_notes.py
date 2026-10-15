@@ -6,8 +6,8 @@ from test_catalog import teacher_client
 
 
 def test_every_readable_catalog_entry_has_article_specific_validated_notes():
-    assert len(AUTHORED)==96
-    assert sum(len(x) for x in AUTHORED.values())==226
+    assert len(AUTHORED)==98
+    assert sum(len(x) for x in AUTHORED.values())==232
     for entry in catalog.CATALOG:
         if not entry['available']:
             assert not entry['points'] and not entry['has_analysis']
@@ -27,9 +27,9 @@ def test_every_readable_catalog_entry_has_article_specific_validated_notes():
 
 def test_every_packaged_bank_material_has_grounded_notes_and_no_new_fabricated_questions():
     records=bank.seed_records()
-    assert len(records)==574
+    assert len(records)==576
     assert sum(len(x['questions']) for x in records)==186
-    assert len({x['revision'] for x in records})==574
+    assert len({x['revision'] for x in records})==576
     for row in records:
         assert row['notes']
         for note in row['notes']:
@@ -78,7 +78,7 @@ def test_rule_bank_material_can_be_previewed_confirmed_and_recommended_with_hone
         if item['match_evidence']: assert '规则辅助' in item['match_basis']
         else: assert '关联较弱' in item['match_basis']
     stats=c.get('/api/bank').json()['stats']
-    assert stats['analyzed']==574 and 0<stats['rule_analyzed']<574
+    assert stats['analyzed']==576 and 0<stats['rule_analyzed']<576
 
 
 def test_existing_unmanaged_import_without_notes_gets_read_only_aids_without_overwrite(teacher_client):

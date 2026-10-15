@@ -6,8 +6,8 @@ def test_curriculum_coverage_and_truthful_availability(teacher_client):
     data=teacher_client.get('/api/catalog').json()
     items=data['items']
     assert len(items)==192
-    assert data['readable']==134
-    assert data['analyzable']==134
+    assert data['readable']==136
+    assert data['analyzable']==136
     assert sum(x['recommended'] for x in items)==72
     assert set(data['books'])=={'必修上册','必修下册','选择性必修上册','选择性必修中册','选择性必修下册'}
     assert len({x['id'] for x in items})==len(items)
@@ -44,13 +44,13 @@ def test_directory_cannot_create_blank_article_and_readable_uses_authored_analys
 
 def test_expansion_keeps_legacy_bank_ids_and_questions_and_adds_readable_curriculum_only():
     records=bank.seed_records()
-    assert len(records)==574
-    assert len({x['id'] for x in records})==574
+    assert len(records)==576
+    assert len({x['id'] for x in records})==576
     assert sum(len(x['questions']) for x in records)==186
     assert sum(x['id'].startswith('curated:') for x in records)==9
     assert sum(x['id'].startswith('poetry:tang:') for x in records)==365
     additions=[x for x in records if x['id'].startswith('curriculum:')]
-    assert len(additions)==89
+    assert len(additions)==91
     assert all(x['body'].strip() and x['notes'] and not x['questions'] for x in additions)
     assert len({x['content_hash'] for x in additions})==len(additions)
 
