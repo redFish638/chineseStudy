@@ -6,6 +6,9 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+import threading
+
+from . import analysis, catalog
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -208,6 +211,64 @@ def add_point(body: PointIn, db: Session = Depends(db_session)):
     row = Point(**body.model_dump()); db.add(row); db.commit()
     return {'id': row.id}
 
+@app.get('/api/catalog', dependencies=[Depends(teacher)])
+def article_catalog():
+    return {'items': catalog.listing(), 'ai_configured': analysis.configured(),
+            'resources': catalog.RESOURCES,
+            'scope': '跨版本文章库起步版；篇目册次需与任教教材核对，非所有版本完整教材或商业题库。'}
+
+@app.post('/api/catalog/{entry_id}/open', dependencies=[Depends(teacher)])
+def open_catalog(entry_id: str, db: Session = Depends(db_session)):
+    entry = catalog.get_entry(entry_id)
+    if not entry:
+        raise HTTPException(404, '文章库中未找到该篇目')
+    article = db.scalar(select(Article).where(Article.title == entry['title'], Article.content == entry['content'], Article.genre == entry['genre']))
+    if not article:
+        article = Article(title=entry['title'], content=entry['content'], genre=entry['genre'])
+        db.add(article)
+        db.commit()
+    return {'id': article.id}
+
+class AnalyzeIn(InputModel):
+    mode: str = Field(default='auto', pattern='^(auto|ai)$')
+
+@app.post('/api/articles/{id}/analyze', dependencies=[Depends(teacher)])
+def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session)):
+    article = require(db, Article, id)
+    try:
+        result = analysis.analyze(article, body.mode)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from None
+    return {**result, 'article_digest': analysis.fingerprint(article)}
+
+class ConfirmAnalysisIn(InputModel):
+    article_digest: str = Field(pattern='^[0-9a-f]{64}$')
+    source: str = Field(pattern='^(内置教研解析（非AI）|公开题目解析提取（非AI）|AI辅助解析)$')
+    points: list[analysis.AnalysisPoint] = Field(min_length=1, max_length=12)
+
+ANALYSIS_CONFIRM_LOCK = threading.Lock()
+
+@app.post('/api/articles/{id}/confirm-analysis', dependencies=[Depends(teacher)])
+def confirm_analysis(id: int, body: ConfirmAnalysisIn, db: Session = Depends(db_session)):
+    with ANALYSIS_CONFIRM_LOCK:
+        article = require(db, Article, id)
+        if analysis.fingerprint(article) != body.article_digest:
+            raise HTTPException(409, '文章已修改，请重新分析后保存')
+        if any(p.evidence not in article.content for p in body.points):
+            raise HTTPException(422, '有引文不在当前原文中，请核对依据')
+        names = set(db.scalars(select(Point.name).where(Point.article_id == id)))
+        created = 0
+        for point in body.points:
+            if point.name in names:
+                continue
+            db.add(Point(article_id=id, name=point.name, description=analysis.description(point, body.source)))
+            names.add(point.name)
+            created += 1
+        db.commit()
+        return {'created': created, 'skipped': len(body.points)-created}
+
 class QuestionIn(InputModel):
     point_id: int
     level: str = Field(pattern='^(基础|巩固|拓展)$')
@@ -250,6 +311,13 @@ def edit_question(id: int, body: QuestionIn, db: Session = Depends(db_session)):
         setattr(row, key, value)
     db.commit()
     return {'ok': True}
+
+@app.get('/api/points/{id}/practice-candidates', dependencies=[Depends(teacher)])
+def practice_candidates(id: int, db: Session = Depends(db_session)):
+    point = require(db, Point, id)
+    article = require(db, Article, point.article_id)
+    return {'items': catalog.practice_candidates(point.name, article.genre),
+            'notice': '按知识点方向匹配自编练习草稿，不是真题；教师核对适配性并完善参考答案和评分标准后保存。'}
 
 class AssignmentIn(InputModel):
     question_id: int

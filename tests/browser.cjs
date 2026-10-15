@@ -8,9 +8,9 @@ const {chromium}=require('playwright');
  const base=process.env.TEST_BASE_URL||'http://127.0.0.1:8001';
  await page.goto(base);
  await page.locator('#username').fill('teacher');await page.locator('#password').fill(process.env.TEST_ADMIN_PASSWORD);
- await page.locator('#login button[type=submit]').click();await page.getByText('教学文章',{exact:true}).waitFor();
+ await page.locator('#login button[type=submit]').click();await page.getByText('选文章，不用手动录入',{exact:true}).waitFor();await page.getByText('已有教学文章 / 补充录入',{exact:true}).click();await page.getByText('＋ 自定义文章 / 编辑当前文章',{exact:true}).click();
  await page.locator('#title').fill('雨夜的灯');await page.locator('#content').fill('母亲在灯下等我归来。');await page.locator('#articleForm button[type=submit]').click();
- await page.locator('#name').fill('意象与象征');await page.locator('#description').fill('能引用细节说明意象的情感含义。');await page.locator('#pointForm button[type=submit]').click();await page.getByText('知识点已保存。',{exact:true}).waitFor();
+ await page.getByText('手动补充 / 修改知识点',{exact:true}).click();await page.locator('#name').fill('意象与象征');await page.locator('#description').fill('能引用细节说明意象的情感含义。');await page.locator('#pointForm button[type=submit]').click();await page.getByText('知识点已保存。',{exact:true}).waitFor();
  await page.locator('[data-tab=questions]').click();await page.locator('#questionForm').waitFor();
  for(const level of ['基础','巩固','拓展']){
   await page.locator('[name=level]').selectOption(level);await page.locator('#material').fill('夜色里，门前那盏灯一直亮着。');await page.locator('#prompt').fill(level+'：分析灯的象征意义。');await page.locator('#reference').fill('灯象征家庭的温暖和母亲的守候。');await page.locator('#rubric').fill('依据五分，分析五分。');await page.locator('#questionForm button[type=submit]').click();await page.getByText(level+'：分析灯的象征意义。',{exact:true}).waitFor();

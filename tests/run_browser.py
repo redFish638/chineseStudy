@@ -12,7 +12,7 @@ try:
         except Exception:
             if server.poll() is not None: raise RuntimeError(server.stderr.read().decode())
             time.sleep(.2)
-    result=subprocess.run(['node','tests/browser.cjs'],cwd=root,env={**os.environ,'TEST_ADMIN_PASSWORD':password,'TEST_BASE_URL':'http://127.0.0.1:8017',**({'CHROMIUM_EXECUTABLE':os.getenv('CHROMIUM_EXECUTABLE', shutil.which('chromium') or '')} if os.getenv('CHROMIUM_EXECUTABLE') or shutil.which('chromium') else {})})
+    result=subprocess.run(['node',os.getenv('TEST_BROWSER_SCRIPT', 'tests/browser.cjs')],cwd=root,env={**os.environ,'TEST_ADMIN_PASSWORD':password,'TEST_BASE_URL':'http://127.0.0.1:8017',**({'CHROMIUM_EXECUTABLE':os.getenv('CHROMIUM_EXECUTABLE', shutil.which('chromium') or '')} if os.getenv('CHROMIUM_EXECUTABLE') or shutil.which('chromium') else {})})
     raise SystemExit(result.returncode)
 finally:
     server.terminate();server.wait(timeout=10)
