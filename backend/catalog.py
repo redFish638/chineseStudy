@@ -202,3 +202,7 @@ def practice_candidates(name, genre):
     base_items = _authored_candidates(name, genre)
     base_items = [x for x in base_items if not x['id'].startswith('gaokao-')]
     return (result[:12]+base_items)[:36]
+
+# Add factual directory entries and source-attributed public originals after legacy seeds.
+from .curriculum import extend_catalog
+extend_catalog(CATALOG)

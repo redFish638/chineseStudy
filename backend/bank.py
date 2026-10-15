@@ -105,7 +105,7 @@ def material_record(id, title, author, genre, source_type, body, source_url, sou
 
 def seed_records():
     result = []
-    curated = [x for x in catalog.CATALOG if not x['id'].startswith('gaokao-')]
+    curated = [x for x in catalog.CATALOG if not x['id'].startswith('gaokao-') and not x.get('curriculum_added')]
     for entry in curated:
         notes = [{**p, 'tags':point_tags(p['name'])} for p in entry['points']]
         questions = []
@@ -151,6 +151,16 @@ def seed_records():
                       'https://github.com/chinese-poetry/chinese-poetry/blob/master/全唐诗/唐诗三百首.json',
                       'chinese-poetry公开文集，MIT；保留原数据字形',[],[],tags=tags,
                       review='主题标签来自原文集，不等于题目考点；暂无配套解析和原题'))
+    known = {x['content_hash'] for x in result}
+    for entry in catalog.CATALOG:
+        if not entry.get('curriculum_added') or not entry['available']: continue
+        digest = body_hash(entry['content'])
+        if digest in known: continue
+        known.add(digest)
+        result.append(material_record('curriculum:'+entry['id'],entry['title'],entry['author'],entry['genre'],
+                      'textbook' if entry['books'] else 'public',entry['content'],entry['source_url'],
+                      entry['source']+' '+entry['text_status'],[],[],tags=[],
+                      review='公开原文或选录，教材范围与字句待核对；暂无审校知识点与配套题目'))
     return result
 
 

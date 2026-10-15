@@ -1,0 +1,54 @@
+from backend import bank, catalog
+from test_catalog import teacher_client
+
+
+def test_curriculum_coverage_and_truthful_availability(teacher_client):
+    data=teacher_client.get('/api/catalog').json()
+    items=data['items']
+    assert len(items)==192
+    assert data['readable']==100
+    assert data['analyzable']==38
+    assert sum(x['recommended'] for x in items)==72
+    assert set(data['books'])=={'必修上册','必修下册','选择性必修上册','选择性必修中册','选择性必修下册'}
+    assert len({x['id'] for x in items})==len(items)
+    assert all(x['available']==bool(x['content'].strip()) for x in items)
+    assert all(not x['has_analysis'] or x['available'] for x in items)
+    for title in ['红楼梦','乡土中国','插秧歌','在民族复兴的历史丰碑上——2020中国抗疫记','风景谈','一个消逝了的山村']:
+        assert any(x['title']==title and x['books'] for x in items)
+    chapter=next(x for x in items if x['title']=='《论语》十二章')
+    assert len(chapter['content'].splitlines())==12
+    assert '克己复礼为仁' in chapter['content'] and '有一言而可以终身行之者乎' in chapter['content']
+    assert '温故而知新' not in chapter['content']  # Do not mislabel the junior-school selection.
+    assert any(x['title']=='大学之道' for x in items)
+    assert any(x['title']=='大学（节选）' for x in items)
+    assert all('2020' in x['directory_note'] for x in items if x['recommended'] and x.get('curriculum_added'))
+
+
+def test_directory_cannot_create_blank_article_and_readable_without_notes_does_not_fake_analysis(teacher_client):
+    c=teacher_client
+    items=c.get('/api/catalog').json()['items']
+    directory=next(x for x in items if x['title']=='百年孤独（节选）')
+    before=c.get('/api/workspace').json()['articles']
+    assert c.post('/api/catalog/'+directory['id']+'/open').status_code==409
+    assert c.get('/api/workspace').json()['articles']==before
+    original=next(x for x in items if x['title']=='陈情表')
+    result=c.post('/api/catalog/'+original['id']+'/open').json()
+    assert result['has_analysis'] is False
+    assert c.post('/api/catalog/'+original['id']+'/open').json()['id']==result['id']
+    response=c.post(f"/api/articles/{result['id']}/analyze",json={})
+    assert response.status_code==422
+    assert '未配置AI' in response.json()['detail']
+    assert c.get('/api/workspace').json()['points']==[]
+
+
+def test_expansion_keeps_legacy_bank_ids_and_questions_and_adds_readable_curriculum_only():
+    records=bank.seed_records()
+    assert len(records)==541
+    assert len({x['id'] for x in records})==541
+    assert sum(len(x['questions']) for x in records)==186
+    assert sum(x['id'].startswith('curated:') for x in records)==9
+    assert sum(x['id'].startswith('poetry:tang:') for x in records)==365
+    additions=[x for x in records if x['id'].startswith('curriculum:')]
+    assert len(additions)==56
+    assert all(x['body'].strip() and not x['notes'] and not x['questions'] for x in additions)
+    assert len({x['content_hash'] for x in additions})==len(additions)

@@ -48,11 +48,11 @@ AI_SLOTS = threading.BoundedSemaphore(2)
 
 def analyze(article, mode='auto'):
     entry = match_entry(article.content, article.genre)
-    if mode != 'ai' and entry:
+    if mode != 'ai' and entry and entry['points']:
         return {'source': entry.get('analysis_source', '内置教研解析（非AI）'), 'points': [AnalysisPoint(**x).model_dump() for x in entry['points']],
                 'notice': '按篇目匹配内置教研笔记，或从公开题目解析中按类别提取；不是实时AI分析，需审核后保存。'}
     if not configured():
-        raise ValueError('该文章尚无内置解析，且未配置AI服务。请从内置文章库选择，或配置AI后分析。')
+        raise ValueError('该文章尚无内置解析，且未配置AI服务。请选择已有内置解析的篇目，或配置AI后分析。')
     base = os.environ['ZHIYU_AI_BASE_URL'].rstrip('/')
     parsed = urlsplit(base)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:

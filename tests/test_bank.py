@@ -13,7 +13,7 @@ def make_point(client, name='意象与悲秋意境'):
 def test_bank_sources_paging_and_filters(teacher_client):
     c=teacher_client
     result=c.get('/api/bank?limit=10').json()
-    assert result['stats']['materials']==485
+    assert result['stats']['materials']==len(bank.seed_records())
     assert result['stats']['sources']['gaokao']==111
     assert result['stats']['sources']['mock']==0
     assert result['stats']['questions']==186
@@ -124,7 +124,7 @@ def test_existing_database_gets_additive_bank_tables_without_losing_teaching_dat
         assert db.scalar(select(Admin)).password_hash=='existing-password-hash'
         assert db.scalar(select(Article)).content=='用户已有正文，不得重置。'
         assert db.scalar(select(Point)).name=='原有知识点'
-        assert db.scalar(select(func.count()).select_from(BankMaterial))==485
+        assert db.scalar(select(func.count()).select_from(BankMaterial))==len(bank.seed_records())
         seed_material_bank(db);db.commit()
-        assert db.scalar(select(func.count()).select_from(BankMaterial))==485
+        assert db.scalar(select(func.count()).select_from(BankMaterial))==len(bank.seed_records())
     engine.dispose()

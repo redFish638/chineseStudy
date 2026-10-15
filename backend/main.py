@@ -10,6 +10,7 @@ from pathlib import Path
 import threading
 
 from . import analysis, catalog, bank
+from .curriculum import DIRECTORY_SOURCES
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -288,19 +289,25 @@ def article_catalog(db:Session=Depends(db_session)):
     return {'items': catalog.listing(), 'ai_configured': analysis.configured(),
             'bank_materials':db.scalar(select(func.count()).select_from(BankMaterial)),
             'resources': catalog.RESOURCES,
-            'scope': '跨版本文章库起步版；篇目册次需与任教教材核对，非所有版本完整教材或商业题库。'}
+            'books': sorted({b for x in catalog.CATALOG for b in x['books']}),
+            'readable': sum(x['available'] for x in catalog.CATALOG),
+            'analyzable': sum(x['has_analysis'] for x in catalog.CATALOG),
+            'directory_sources': DIRECTORY_SOURCES,
+            'scope': '统编五册课文、诵读与整本书阅读参考目录，含跨印次差异篇目；另列2020课标72篇推荐参考。尚未覆盖所有教材版本，推荐不等于当前高考范围。'}
 
 @app.post('/api/catalog/{entry_id}/open', dependencies=[Depends(teacher)])
 def open_catalog(entry_id: str, db: Session = Depends(db_session)):
     entry = catalog.get_entry(entry_id)
     if not entry:
         raise HTTPException(404, '文章库中未找到该篇目')
+    if not entry['available']:
+        raise HTTPException(409, '此篇目前仅有目录，尚未收录可用原文，请先选择标为可读的篇目')
     article = db.scalar(select(Article).where(Article.title == entry['title'], Article.content == entry['content'], Article.genre == entry['genre']))
     if not article:
         article = Article(title=entry['title'], content=entry['content'], genre=entry['genre'])
         db.add(article)
         db.commit()
-    return {'id': article.id}
+    return {'id': article.id, 'has_analysis': entry['has_analysis']}
 
 def all_bank_records(db):
     questions={}
