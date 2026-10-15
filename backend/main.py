@@ -11,6 +11,7 @@ import threading
 
 from . import analysis, catalog, bank
 from .curriculum import DIRECTORY_SOURCES
+from .builtin_notes import RULE_SOURCE, AUTHORED_SOURCE, rule_notes
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -122,9 +123,14 @@ def bank_exercise_dict(row):
             'tags':json.loads(row.tags_json)}
 
 
+def material_notes(row):
+    return json.loads(row.notes_json) or rule_notes(row.title,row.genre,row.body)
+
+
 def bank_material_dict(row, questions=()):
+    notes = material_notes(row)
     return {**{key:getattr(row,key) for key in ['id','title','author','genre','source_type','body','content_hash','source_url','source_label','year','region','review']},
-            'managed':row.managed,'tags':json.loads(row.tags_json), 'notes':json.loads(row.notes_json),
+            'managed':row.managed,'tags':list(dict.fromkeys(json.loads(row.tags_json)+[t for n in notes for t in n.get('tags',[])])), 'notes':notes,
             'questions':[bank_exercise_dict(x) for x in questions]}
 
 
@@ -344,6 +350,8 @@ def material_bank(q:str='',genre:str='',source_type:str='',tag:str='',year:str='
     filtered.sort(key=lambda r:(r['source_type'],r['title'],r['id']))
     return {'items':[bank_summary(r) for r in filtered[offset:offset+limit]],'total':len(filtered),
             'offset':offset,'limit':limit,'stats':{'materials':len(records),'questions':sum(len(r['questions']) for r in records),
+            'analyzed':sum(bool(r['notes']) for r in records),
+            'rule_analyzed':sum(bool(r['notes']) and all(n.get('origin')=='rule' for n in r['notes']) for r in records),
             'tagged':sum(bool(r['tags']) for r in records),'sources':{key:sum(r['source_type']==key for r in records) for key in bank.SOURCE_TYPES}},
             'tags':[{'id':key,'name':value} for key,value in bank.TAG_LABELS.items()],
             'source_types':bank.SOURCE_TYPES,'years':sorted({r['year'] for r in records if r['year']},reverse=True)}
@@ -362,7 +370,7 @@ def open_bank_material(id:str,db:Session=Depends(db_session)):
     if not article:
         article=Article(title=row.title,genre=row.genre,content=row.body)
         db.add(article);db.commit()
-    return {'id':article.id,'has_analysis':bool(json.loads(row.notes_json))}
+    return {'id':article.id,'has_analysis':bool(material_notes(row))}
 
 
 @app.get('/api/points/{id}/related-materials',dependencies=[Depends(teacher)])
@@ -453,13 +461,14 @@ def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session))
     try:
         matched = db.scalar(select(BankMaterial).where(BankMaterial.body == article.content))
         if body.mode != 'ai' and matched and not catalog.match_entry(article.content,article.genre):
-            notes=json.loads(matched.notes_json)
+            notes=material_notes(matched)
             if not notes:
                 raise ValueError('该文集篇目暂无教研解析；可作为关联阅读材料，或配置AI后分析。')
-            points=[analysis.AnalysisPoint(name=n['name'],evidence=n['evidence'],learning_goal='能结合原文分析“'+n['name']+'”。',
-                explanation=n['explanation'][:600] or '据来源解析标签，需教师复核。',foundation='理解相关关键词句',
-                consolidation='结合原题写出依据与分析',extension='比较其他篇目中的相同知识点').model_dump() for n in notes[:12]]
-            result={'source':'公开题目解析提取（非AI）','points':points,'notice':'基于来源解析的标签与引文定位，须教师复核。'}
+            points=[analysis.AnalysisPoint(name=n['name'],evidence=n['evidence'],learning_goal=n.get('learning_goal','能结合原文分析“'+n['name']+'”。'),
+                explanation=n['explanation'][:600] or '据来源解析标签，需教师复核。',foundation=n.get('foundation','解释引句中与知识点相关的词句'),
+                consolidation=n.get('consolidation','结合原题写出依据与分析'),extension=n.get('extension','比较其他篇目中的相同知识点')).model_dump() for n in notes[:12]]
+            source = RULE_SOURCE if all(n.get('origin')=='rule' for n in notes) else AUTHORED_SOURCE if all(n.get('origin')=='authored' for n in notes) else '公开题目解析提取（非AI）'
+            result={'source':source,'points':points,'notice':'规则辅助仅辨认可见语言线索，不是逐篇审校结论；其余解析也须教师核对，确认后保存。'}
         else:
             result = analysis.analyze(article, body.mode)
     except ValueError as exc:
@@ -470,7 +479,7 @@ def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session))
 
 class ConfirmAnalysisIn(InputModel):
     article_digest: str = Field(pattern='^[0-9a-f]{64}$')
-    source: str = Field(pattern='^(内置教研解析（非AI）|公开题目解析提取（非AI）|AI辅助解析)$')
+    source: str = Field(pattern='^(内置教研解析（非AI）|公开题目解析提取（非AI）|内置研读解析（规则辅助）|内置篇目解析（待审校）|AI辅助解析)$')
     points: list[analysis.AnalysisPoint] = Field(min_length=1, max_length=12)
 
 ANALYSIS_CONFIRM_LOCK = threading.Lock()

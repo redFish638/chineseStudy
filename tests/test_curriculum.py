@@ -7,7 +7,7 @@ def test_curriculum_coverage_and_truthful_availability(teacher_client):
     items=data['items']
     assert len(items)==192
     assert data['readable']==100
-    assert data['analyzable']==38
+    assert data['analyzable']==100
     assert sum(x['recommended'] for x in items)==72
     assert set(data['books'])=={'必修上册','必修下册','选择性必修上册','选择性必修中册','选择性必修下册'}
     assert len({x['id'] for x in items})==len(items)
@@ -24,7 +24,7 @@ def test_curriculum_coverage_and_truthful_availability(teacher_client):
     assert all('2020' in x['directory_note'] for x in items if x['recommended'] and x.get('curriculum_added'))
 
 
-def test_directory_cannot_create_blank_article_and_readable_without_notes_does_not_fake_analysis(teacher_client):
+def test_directory_cannot_create_blank_article_and_readable_uses_authored_analysis(teacher_client):
     c=teacher_client
     items=c.get('/api/catalog').json()['items']
     directory=next(x for x in items if x['title']=='百年孤独（节选）')
@@ -33,11 +33,12 @@ def test_directory_cannot_create_blank_article_and_readable_without_notes_does_n
     assert c.get('/api/workspace').json()['articles']==before
     original=next(x for x in items if x['title']=='陈情表')
     result=c.post('/api/catalog/'+original['id']+'/open').json()
-    assert result['has_analysis'] is False
+    assert result['has_analysis'] is True
     assert c.post('/api/catalog/'+original['id']+'/open').json()['id']==result['id']
     response=c.post(f"/api/articles/{result['id']}/analyze",json={})
-    assert response.status_code==422
-    assert '未配置AI' in response.json()['detail']
+    assert response.status_code==200
+    assert response.json()['source']=='内置篇目解析（待审校）'
+    assert any(p['name']=='比喻与情境压力' and '日薄西山' in p['evidence'] for p in response.json()['points'])
     assert c.get('/api/workspace').json()['points']==[]
 
 
@@ -50,5 +51,5 @@ def test_expansion_keeps_legacy_bank_ids_and_questions_and_adds_readable_curricu
     assert sum(x['id'].startswith('poetry:tang:') for x in records)==365
     additions=[x for x in records if x['id'].startswith('curriculum:')]
     assert len(additions)==56
-    assert all(x['body'].strip() and not x['notes'] and not x['questions'] for x in additions)
+    assert all(x['body'].strip() and x['notes'] and not x['questions'] for x in additions)
     assert len({x['content_hash'] for x in additions})==len(additions)

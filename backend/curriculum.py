@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import re
 
+from .builtin_notes import AUTHORED, AUTHORED_SOURCE
+
 DIRECTORY_SOURCES = [
     {'name':'统编五册目录核对（公开镜像所载印次）', 'url':'https://github.com/Hello-Fx/TchMaterial/tree/main/语文'},
     {'name':'跨印次课文索引（116条参考）', 'url':'https://github.com/Midshow/yuwen-jiaocan/blob/main/references/课文索引.md'},
@@ -33,6 +35,11 @@ def extend_catalog(catalog):
         entry.setdefault('books',[])
         entry.setdefault('recommended',False)
         entry.setdefault('sections',[])
+        if entry['content'].strip() and not entry['points']:
+            entry['points'] = [dict(p) for p in AUTHORED.get(entry['title'],[])]
+            if entry['points']:
+                entry['analysis_source'] = AUTHORED_SOURCE
+                entry['source'] = entry['source'].replace('未附审校知识点。','知识点为本应用逐篇编写，须教师审阅。')
         entry['available'] = bool(entry['content'].strip())
         entry['has_analysis'] = bool(entry['points'])
         entry.setdefault('text_status',entry['scope'])

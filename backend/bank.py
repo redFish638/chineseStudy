@@ -6,6 +6,7 @@ import re
 import unicodedata
 
 from . import catalog
+from .builtin_notes import rule_notes
 
 DATA = Path(__file__).parent/'data'
 SOURCE_TYPES = {'textbook': '课文选篇', 'gaokao': '高考真题', 'mock': '模拟试题', 'public': '公开文集', 'bank': '其他题库'}
@@ -14,6 +15,10 @@ TAXONOMY = [
     ('emotion', '思想情感', r'情感|感情|思乡|思念|情绪|心境|感慨|身世|悲秋|伤今|主旨|寄托|抒情'),
     ('metaphor', '比喻', r'比喻|喻体|本体'),
     ('personification', '拟人', r'拟人'),
+    ('allusion', '用典', r'用典|典故'),
+    ('exaggeration', '夸张', r'夸张'),
+    ('repetition', '反复与重章', r'反复|重章|复沓'),
+    ('rhetorical-question', '设问与反问', r'设问|反问'),
     ('symbol', '象征与托物言志', r'象征|托物言志'),
     ('parallel', '对偶与排比', r'对偶|对仗|对举|排比'),
     ('real-imagined', '虚实结合与联想', r'虚实|虚写|实写|想象|联想'),
@@ -34,7 +39,7 @@ TAXONOMY = [
 ]
 TAG_LABELS = {key: label for key, label, _ in TAXONOMY}
 TAG_PATTERNS = {key: re.compile(pattern) for key, _, pattern in TAXONOMY}
-METHODS = {'metaphor','personification','symbol','parallel','real-imagined','synesthesia','motion','contrast','narration','classical-word','classical-particle','conversion','translation'}
+METHODS = {'metaphor','personification','symbol','parallel','real-imagined','synesthesia','motion','contrast','narration','classical-word','classical-particle','conversion','translation','allusion','exaggeration','repetition','rhetorical-question'}
 
 
 def normalized(text):
@@ -89,13 +94,22 @@ def notes_from_analysis(text, material):
         excerpt = text[start:start+450].strip()
         notes.append({'name': TAG_LABELS[tag], 'tags': [tag],
                       'evidence': catalog.quoted_evidence(excerpt+'\n'+text, material),
-                      'explanation': excerpt})
+                      'explanation': excerpt, 'origin':'source'})
     return notes
 
 
 def material_record(id, title, author, genre, source_type, body, source_url, source_label,
                     notes, questions, year='', region='', review='公开来源整理，需教师复核', tags=None):
-    tag_ids = tags if tags is not None else list(dict.fromkeys(t for note in notes for t in note['tags']))
+    if not notes:
+        entry = catalog.match_entry(body,genre)
+        if entry and entry['points']:
+            origin = 'source' if entry.get('analysis_source')=='公开题目解析提取（非AI）' else 'authored'
+            notes = [{**p,'tags':point_tags(p['name']),'origin':origin} for p in entry['points']]
+            review = '原文范围与字句待核对；已附篇目内置解析，须教师审阅；配套原题以题目列表为准'
+        else:
+            notes = rule_notes(title,genre,body)
+            review += '；已附规则辅助研读解析（非逐篇审校答案），须教师确认'
+    tag_ids = list(dict.fromkeys((tags or []) + [t for note in notes for t in note['tags']]))
     result = dict(id=id, title=title[:200], author=author[:100], genre=genre, source_type=source_type,
                   body=body, content_hash=body_hash(body), source_url=source_url, source_label=source_label,
                   year=year, region=region[:100], review=review, tags=tag_ids, notes=notes, questions=questions)
@@ -107,7 +121,7 @@ def seed_records():
     result = []
     curated = [x for x in catalog.CATALOG if not x['id'].startswith('gaokao-') and not x.get('curriculum_added')]
     for entry in curated:
-        notes = [{**p, 'tags':point_tags(p['name'])} for p in entry['points']]
+        notes = [{**p, 'origin':'authored', 'tags':point_tags(p['name'])} for p in entry['points']]
         questions = []
         for i, p in enumerate(entry['points']):
             for level, key in [('基础','foundation'), ('巩固','consolidation'), ('拓展','extension')]:
@@ -150,7 +164,7 @@ def seed_records():
         result.append(material_record(f'poetry:tang:{i}',title,author,'诗歌','public',body,
                       'https://github.com/chinese-poetry/chinese-poetry/blob/master/全唐诗/唐诗三百首.json',
                       'chinese-poetry公开文集，MIT；保留原数据字形',[],[],tags=tags,
-                      review='主题标签来自原文集，不等于题目考点；暂无配套解析和原题'))
+                      review='主题标签来自原文集；研读解析为规则辅助、待审校，非原题答案'))
     known = {x['content_hash'] for x in result}
     for entry in catalog.CATALOG:
         if not entry.get('curriculum_added') or not entry['available']: continue
@@ -159,8 +173,8 @@ def seed_records():
         known.add(digest)
         result.append(material_record('curriculum:'+entry['id'],entry['title'],entry['author'],entry['genre'],
                       'textbook' if entry['books'] else 'public',entry['content'],entry['source_url'],
-                      entry['source']+' '+entry['text_status'],[],[],tags=[],
-                      review='公开原文或选录，教材范围与字句待核对；暂无审校知识点与配套题目'))
+                      entry['source']+' '+entry['text_status'],[{**p,'tags':point_tags(p['name']),'origin':'authored'} for p in entry['points']],[],
+                      review='公开原文或选录，教材范围与字句待核对；知识点为本应用逐篇编写、待教师审阅，暂无原题'))
     return result
 
 
@@ -185,7 +199,7 @@ def recommend(records, point_name, point_description, current_body, current_titl
         if not overlap: continue
         notes = [n for n in record['notes'] if any(t in overlap for t in n.get('tags',[]))]
         evidence = next((n['evidence'] for n in notes if n.get('evidence') in record['body']), '')
-        score = 30*len(overlap)+(10 if notes else 0)+(5 if record['questions'] else 0)+(3 if record['genre']==current_genre else 0)
+        score = 30*len(overlap)+(3 if notes and all(n.get('origin')=='rule' for n in notes) else 10 if notes else 0)+(5 if record['questions'] else 0)+(3 if record['genre']==current_genre else 0)
         ranked.append((score, record, overlap, notes, evidence))
     ranked.sort(key=lambda x:(-x[0],x[1]['id']))
     result=[]
@@ -193,6 +207,6 @@ def recommend(records, point_name, point_description, current_body, current_titl
         if record['content_hash'] in seen: continue
         seen.add(record['content_hash'])
         result.append({**record, 'match_tags':overlap, 'match_reason':'共同知识点：'+'、'.join(TAG_LABELS[t] for t in overlap),
-                       'match_basis':'来源解析标签' if notes else '来源主题标签（关联较弱）', 'match_evidence':evidence,
+                       'match_basis':('规则辅助研读标签（待审校）' if all(n.get('origin')=='rule' for n in notes) else '篇目教研解析标签' if any(n.get('origin')=='authored' for n in notes) else '来源解析标签') if notes else '来源主题标签（关联较弱）', 'match_evidence':evidence,
                        'match_explanation':notes[0].get('explanation','') if notes else '仅按文集主题标签匹配，尚无教研解析，需核对是否适合此知识点。'})
     return query_tags,result
