@@ -206,3 +206,6 @@ def practice_candidates(name, genre):
 # Add factual directory entries and source-attributed public originals after legacy seeds.
 from .curriculum import extend_catalog
 extend_catalog(CATALOG)
+
+from .textbook_editions import attach_editions, EDITIONS as EDITION_OPTIONS
+attach_editions(CATALOG)

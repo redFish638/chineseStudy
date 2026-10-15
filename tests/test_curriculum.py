@@ -53,3 +53,21 @@ def test_expansion_keeps_legacy_bank_ids_and_questions_and_adds_readable_curricu
     assert len(additions)==86
     assert all(x['body'].strip() and x['notes'] and not x['questions'] for x in additions)
     assert len({x['content_hash'] for x in additions})==len(additions)
+
+
+def test_edition_specific_placement_does_not_relabel_recommendations_or_exams(teacher_client):
+    data = teacher_client.get('/api/catalog').json()
+    editions = {e['id']: e for e in data['editions']}
+    assert editions['renjiao']['publisher'] == '人民教育出版社'
+    assert editions['sujiao']['publisher'] == '江苏教育出版社'
+    assert '旧课标' in editions['sujiao']['name']
+    items = data['items']
+    for edition_id, edition in editions.items():
+        placements = [p for x in items for p in x['textbook_editions'] if p['id'] == edition_id]
+        assert edition['count'] == len(placements) > 0
+        assert set(edition['books']) == {b for p in placements for b in p['books']}
+    chibi = next(x for x in items if x['title'].startswith('赤壁赋'))
+    assert {'id': 'sujiao', 'books': ['必修一']} in chibi['textbook_editions']
+    assert any(p['id']=='renjiao' for p in chibi['textbook_editions'])
+    assert all(not x['textbook_editions'] for x in items if x['collection']=='公开真题材料')
+    assert all(x['books']==next(p['books'] for p in x['textbook_editions'] if p['id']=='renjiao') for x in items if x['books'])

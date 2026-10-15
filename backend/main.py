@@ -344,6 +344,9 @@ def article_catalog(db:Session=Depends(db_session)):
     return {'items': catalog.listing(), 'ai_configured': analysis.configured(),
             'bank_materials':db.scalar(select(func.count()).select_from(BankMaterial)),
             'resources': catalog.RESOURCES,
+            'editions': [{**edition, 'books': sorted({b for x in catalog.CATALOG for placement in x['textbook_editions'] if placement['id']==edition['id'] for b in placement['books']}),
+                          'count': sum(any(p['id']==edition['id'] for p in x['textbook_editions']) for x in catalog.CATALOG)}
+                         for edition in catalog.EDITION_OPTIONS],
             'books': sorted({b for x in catalog.CATALOG for b in x['books']}),
             'readable': sum(x['available'] for x in catalog.CATALOG),
             'analyzable': sum(x['has_analysis'] for x in catalog.CATALOG),
