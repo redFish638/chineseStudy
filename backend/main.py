@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 
-from . import analysis, catalog, bank
+from . import analysis, catalog, bank, knowledge
 from .curriculum import DIRECTORY_SOURCES
 from .builtin_notes import RULE_SOURCE, AUTHORED_SOURCE, rule_notes
 
@@ -264,7 +264,7 @@ def require(db, model, id):
 def workspace(db: Session = Depends(db_session)):
     return {
         'articles': [rowdict(x, 'id title genre content') for x in db.scalars(select(Article).order_by(Article.id.desc()))],
-        'points': [rowdict(x, 'id article_id name description') for x in db.scalars(select(Point))],
+        'points': [{**rowdict(x, 'id article_id name description'), 'categories':knowledge.categories(x.name,x.description)} for x in db.scalars(select(Point))],
         'questions': [rowdict(x, 'id point_id level material prompt reference rubric max_score') for x in db.scalars(select(Question))],
         'assignments': [rowdict(x, 'id token question_id student created parent_id') for x in db.scalars(select(Assignment).order_by(Assignment.id.desc()))],
         'submissions': [rowdict(x, 'id assignment_id answer submitted score feedback issue reviewed') for x in db.scalars(select(Submission))]
@@ -292,26 +292,25 @@ def add_point(body: PointIn, db: Session = Depends(db_session)):
     return {'id': row.id}
 
 def knowledge_groups(db):
-    """A live index of confirmed/saved Point records; no speculative catalog tags."""
+    """Project confirmed records into common categories without rewriting them."""
     counts = dict(db.execute(select(Question.point_id,func.count()).group_by(Question.point_id)).all())
     grouped = {}
     for point, article in db.execute(select(Point,Article).join(Article,Point.article_id==Article.id).order_by(Point.id)):
-        normalized = ' '.join(unicodedata.normalize('NFKC',point.name).casefold().split())
-        key = hashlib.sha256(normalized.encode()).hexdigest()
-        group = grouped.setdefault(key,dict(id=key,name=point.name,names=[],articles={},point_count=0,question_count=0))
-        if point.name not in group['names']: group['names'].append(point.name)
-        item = group['articles'].setdefault(article.id,dict(id=article.id,title=article.title,genre=article.genre,points=[],question_count=0))
-        count = counts.get(point.id,0)
-        item['points'].append(dict(id=point.id,name=point.name,description=point.description,question_count=count))
-        item['question_count'] += count
-        group['point_count'] += 1
-        group['question_count'] += count
+        for category in knowledge.categories(point.name, point.description):
+            group = grouped.setdefault(category['id'],dict(**category,names=[],articles={},point_count=0,question_count=0))
+            if point.name not in group['names']: group['names'].append(point.name)
+            item = group['articles'].setdefault(article.id,dict(id=article.id,title=article.title,genre=article.genre,points=[],question_count=0,_content=article.content))
+            count = counts.get(point.id,0)
+            item['points'].append(dict(id=point.id,name=point.name,description=point.description,question_count=count))
+            item['question_count'] += count
+            group['point_count'] += 1
+            group['question_count'] += count
     return grouped
 
 
-def knowledge_summary(group):
-    return {**{k:group[k] for k in ['id','name','names','point_count','question_count']},
-            'article_count':len(group['articles']),
+def knowledge_summary(group, related_count=0):
+    return {**{k:group[k] for k in ['id','name','tag','names','point_count','question_count']},
+            'article_count':len(group['articles']), 'related_count':related_count,
             'articles':[{k:a[k] for k in ['id','title','genre']} for a in group['articles'].values()]}
 
 
@@ -322,21 +321,27 @@ def knowledge_library(q:str='',genre:str='',offset:int=0,limit:int=20,db:Session
     groups = list(knowledge_groups(db).values())
     keyword = unicodedata.normalize('NFKC',q).casefold().strip()
     selected = [g for g in groups if (not genre or any(a['genre']==genre for a in g['articles'].values())) and
-                (not keyword or keyword in unicodedata.normalize('NFKC',' '.join(g['names'])+' '+
+                (not keyword or keyword in unicodedata.normalize('NFKC',g['name']+' '+' '.join(g['names'])+' '+
                     ' '.join(a['title']+' '+' '.join(p['description'] for p in a['points']) for a in g['articles'].values())).casefold())]
     selected.sort(key=lambda g:(-len(g['articles']),g['name'],g['id']))
-    return {'items':[knowledge_summary(g) for g in selected[offset:offset+limit]],'total':len(selected),
+    records = all_bank_records(db) if selected else []
+    return {'items':[knowledge_summary(g,len(knowledge.related_materials(g,records))) for g in selected[offset:offset+limit]],'total':len(selected),
             'offset':offset,'limit':limit,'stats':{'knowledge_points':len(groups),
-            'confirmed_records':sum(g['point_count'] for g in groups),
+            'confirmed_records':len({p['id'] for g in groups for a in g['articles'].values() for p in a['points']}),
             'articles':len({a for g in groups for a in g['articles']})}}
 
 
 @app.get('/api/knowledge-library/{key}',dependencies=[Depends(teacher)])
-def knowledge_detail(key:str,db:Session=Depends(db_session)):
+def knowledge_detail(key:str,offset:int=0,limit:int=10,db:Session=Depends(db_session)):
+    if offset<0 or not 1<=limit<=50: raise HTTPException(422,'分页参数无效')
     group = knowledge_groups(db).get(key)
     if not group: raise HTTPException(404,'知识点不存在或已更名，请刷新知识点库')
-    return {**knowledge_summary(group),'articles':list(group['articles'].values()),
-            'notice':'这里仅索引已保存的知识点与教学文章。同名归组不等于已审定语义相同；每篇原文依据与训练目标分别保留。'}
+    related = knowledge.related_materials(group,all_bank_records(db))
+    return {**knowledge_summary(group,len(related)),
+            'articles':[{k:v for k,v in a.items() if k!='_content'} for a in group['articles'].values()],
+            'related_items':[bank_summary(r) for r in related[offset:offset+limit]],
+            'related_offset':offset,'related_limit':limit,
+            'notice':'按通用知识点归类，本篇学习目标及原文依据保持原样。关联材料来自完整文章题库，按知识点标签、解析引文匹配并去重，排除本组已确认作品；候选解析须教师核对，选用后不会自动确认。'}
 
 
 @app.get('/api/catalog', dependencies=[Depends(teacher)])
@@ -529,7 +534,7 @@ def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session))
             points=[analysis.AnalysisPoint(name=n['name'],evidence=n['evidence'],learning_goal=n.get('learning_goal','能结合原文分析“'+n['name']+'”。'),
                 explanation=n['explanation'][:600] or '据来源解析标签，需教师复核。',foundation=n.get('foundation','解释引句中与知识点相关的词句'),
                 consolidation=n.get('consolidation','结合原题写出依据与分析'),extension=n.get('extension','比较其他篇目中的相同知识点')).model_dump() for n in notes[:12]]
-            source = RULE_SOURCE if all(n.get('origin')=='rule' for n in notes) else AUTHORED_SOURCE if all(n.get('origin')=='authored' for n in notes) else '公开题目解析提取（非AI）'
+            source = RULE_SOURCE if all(n.get('origin')=='rule' for n in notes) else AUTHORED_SOURCE if all(n.get('origin') in {'authored','rule'} for n in notes) else '公开题目解析提取（非AI）'
             result={'source':source,'points':points,'notice':'规则辅助仅辨认可见语言线索，不是逐篇审校结论；其余解析也须教师核对，确认后保存。'}
         else:
             result = analysis.analyze(article, body.mode)
@@ -537,7 +542,15 @@ def analyze_article(id: int, body: AnalyzeIn, db: Session = Depends(db_session))
         raise HTTPException(422, str(exc)) from None
     except RuntimeError as exc:
         raise HTTPException(502, str(exc)) from None
-    return {**result, 'article_digest': analysis.fingerprint(article)}
+    if body.mode != 'ai':
+        existing_tags = {c['tag'] for p in result['points'] for c in knowledge.categories(p['name'],p['explanation'])}
+        for note in knowledge.article_links(article.title, article.content):
+            if len(result['points'])>=12: break
+            if all(tag in existing_tags for tag in note['tags']): continue
+            result['points'].append(analysis.AnalysisPoint(**{k:note[k] for k in analysis.AnalysisPoint.model_fields}).model_dump())
+            existing_tags.update(note['tags'])
+    return {**result, 'categories':[knowledge.categories(p['name'],p['explanation']) for p in result['points']],
+            'article_digest': analysis.fingerprint(article)}
 
 class ConfirmAnalysisIn(InputModel):
     article_digest: str = Field(pattern='^[0-9a-f]{64}$')

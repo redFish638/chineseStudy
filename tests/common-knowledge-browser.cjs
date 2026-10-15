@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict');const {chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE,headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.TEST_BASE_URL);await page.locator('#username').fill('teacher');await page.locator('#password').fill(process.env.TEST_ADMIN_PASSWORD);await page.locator('#login button[type=submit]').click();
+ await page.locator('#catalogSearch').fill('登高');await page.locator('[data-catalog=deng-gao]').click();await page.locator('#chooseCatalog').click();await page.locator('#confirmAnalysis').waitFor();
+ assert.ok((await page.locator('#analysisPreview').textContent()).includes('知识点库归类建议：对偶与排比'));
+ await page.locator('[name=choose-0]').uncheck();await page.locator('[name=choose-2]').uncheck();await page.locator('#confirmAnalysis button[type=submit]').click();
+ await page.locator('[data-point-category=tag-parallel]').click();await page.locator('[data-knowledge-candidate]').first().waitFor();
+ assert.equal(await page.locator('[data-knowledge]').count(),1);assert.equal(await page.locator('[data-knowledge] strong').textContent(),'对偶与排比');
+ assert.equal(await page.locator('[data-knowledge-candidate]').count(),10);assert.ok((await page.locator('#knowledgeDetail').textContent()).includes('本篇学习目标：时空对举与景物气势'));
+ const ids=await page.locator('[data-knowledge-material]').evaluateAll(nodes=>nodes.map(x=>x.dataset.knowledgeMaterial));
+ await page.locator('#knowledgeRelatedNext').click();await page.locator('#knowledgeRelatedPage').getByText('第 2 / 2 页',{exact:true}).waitFor();
+ const secondIds=await page.locator('[data-knowledge-material]').evaluateAll(nodes=>nodes.map(x=>x.dataset.knowledgeMaterial));assert.ok(secondIds.length>0&&secondIds.length<=10);assert.ok(secondIds.every(x=>!ids.includes(x)));
+ await page.locator('#knowledgeRelatedPrev').click();await page.locator('#knowledgeRelatedPage').getByText('第 1 / 2 页',{exact:true}).waitFor();
+ await page.locator('[data-knowledge-material]').first().click();await page.locator('#openBankAsArticle').waitFor();assert.equal(await page.locator('#bankTag').inputValue(),'parallel');assert.ok((await page.locator('#bankDetail').textContent()).includes('对偶句的结构与表达效果'));
+ const records=()=>page.evaluate(async()=>{const r=await fetch('/api/knowledge-library');return (await r.json()).stats.confirmed_records});assert.equal(await records(),1);
+ await page.locator('#openBankAsArticle').click();await page.locator('#confirmAnalysis').waitFor();assert.equal(await records(),1);
+ const names=await page.locator('#confirmAnalysis input[name$="-name"]').evaluateAll(nodes=>nodes.map(x=>x.value));const index=names.indexOf('对偶句的结构与表达效果');assert.ok(index>=0);
+ const checks=page.locator('#confirmAnalysis input[type=checkbox]');for(let i=0;i<await checks.count();i++)await checks.nth(i).setChecked(i===index);
+ await page.locator('#confirmAnalysis button[type=submit]').click();await page.locator('[data-point-category=tag-parallel]').click();await page.locator('[data-knowledge-article]').first().waitFor();assert.equal(await page.locator('[data-knowledge-article]').count(),2);assert.equal(await records(),2);
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'/tmp/zhiyu-common-knowledge-mobile.png',fullPage:true});
+ assert.deepEqual(errors,[]);console.log('PASS: specific objective maps to common category, 10 grounded related articles, pagination, source analysis, candidate adoption and explicit confirmation into same category, mobile.');await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -9,6 +9,7 @@ from . import catalog
 from .builtin_notes import rule_notes
 
 DATA = Path(__file__).parent/'data'
+KNOWLEDGE_LINKS = json.loads((DATA/'knowledge_links.json').read_text())
 SOURCE_TYPES = {'textbook': '课文选篇', 'gaokao': '高考真题', 'mock': '模拟试题', 'public': '公开文集', 'bank': '其他题库'}
 TAXONOMY = [
     ('imagery', '意象与意境', r'意象|意境|景物|景色|写景|环境描写|山水|写山|田园|边塞'),
@@ -109,6 +110,14 @@ def material_record(id, title, author, genre, source_type, body, source_url, sou
         else:
             notes = rule_notes(title,genre,body)
             review += '；已附规则辅助研读解析（非逐篇审校答案），须教师确认'
+    # Shared-category annotations add grounded cross-article links while keeping
+    # the original article analysis and exercise identifiers unchanged.
+    link_title = {'錦瑟':'锦瑟', '蜀道難':'蜀道难'}.get(title,title)
+    extra = [dict(n) for n in KNOWLEDGE_LINKS.get(link_title, []) if n['evidence'] in body
+             and not any(n['evidence']==old.get('evidence') and n['tags']==old.get('tags') for old in notes)]
+    if extra:
+        notes = extra + notes
+        review += '；另附通用知识点的逐句关联解析，待教师审阅'
     tag_ids = list(dict.fromkeys((tags or []) + [t for note in notes for t in note['tags']]))
     result = dict(id=id, title=title[:200], author=author[:100], genre=genre, source_type=source_type,
                   body=body, content_hash=body_hash(body), source_url=source_url, source_label=source_label,
