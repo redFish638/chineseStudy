@@ -9,17 +9,23 @@ from test_catalog import teacher_client
 
 def test_original_readings_are_deduplicated_and_not_mislabelled_as_exam_questions():
     original=[r for r in bank.seed_records() if not r['id'].startswith('expanded:')]
-    hashes={bank.body_hash(r['body']) for r in original}
+    original_hashes={bank.body_hash(r['body']):r for r in original}
+    hashes=set();shared=[]
     assert len(READINGS)==741
     assert sum(r['genre']=='文言文' for r in READINGS)==472
     assert sum(r['genre']=='诗歌' for r in READINGS)==269
     for row in READINGS:
         key=bank.body_hash(row['body']);assert key not in hashes;hashes.add(key)
+        if key in original_hashes:
+            shared.append((row['title'],original_hashes[key]['id']))
         assert row['author'] and len(row['body'].encode())<=60000
         assert '译文' not in row and '鉴赏' not in row and 'questions' not in row
         entry=catalog.get_entry(row['id'].replace('expanded:','extra-').replace(':','-'))
         assert entry['collection']=='训练材料' and entry['books']==[] and not entry['recommended']
         assert entry['available'] and entry['analysis_source']=='内置研读解析（规则辅助）'
+    # Cleaning the exam wrapper reveals the same poem in two distinct sources.
+    # Keep the source records; question_links deduplicates their reading body.
+    assert shared==[('思远人·红叶黄花秋意晚','gaokao:poetry:2')]
     records=bank.seed_records();assert len(records)==1345
     assert len({r['id'] for r in records})==1345
     assert sum(len(r['questions']) for r in records)==270

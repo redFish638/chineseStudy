@@ -241,6 +241,37 @@ def repair_legacy_exam_titles(db):
             if article.author in {'','见材料署名'}: article.author=fresh['author']
 
 
+def repair_poetry_bodies(db):
+    # Only exact bundled snapshots with their original titles are eligible.
+    # Custom edits and confirmed knowledge records are preserved.
+    replacements = {}
+    for entry in catalog.CATALOG:
+        old = entry.get('legacy_content')
+        if old and old != entry['content']:
+            replacements[old] = entry['content']
+            for article in db.scalars(select(Article).where(
+                    Article.genre=='诗歌', Article.content==old,
+                    Article.title.in_([entry['title'], entry['legacy_title']]))):
+                article.content = entry['content']
+                if article.title == entry['legacy_title']:
+                    article.title = entry['title']
+                if not article.author or article.author == '见材料署名':
+                    article.author = entry['author']
+    fresh = {r['id']:r for r in bank.seed_records() if r['id'].startswith('gaokao:poetry:')}
+    for material in db.scalars(select(BankMaterial).where(BankMaterial.managed == True, BankMaterial.genre=='诗歌')):
+        revised = fresh.get(material.id)
+        if not revised or material.body == revised['body']: continue
+        replacements[material.body] = revised['body']
+        for article in db.scalars(select(Article).where(Article.genre=='诗歌',
+                Article.title==material.title, Article.content==material.body)):
+            article.content = revised['body']
+    # Unassigned drafts can be corrected; distributed student tasks remain snapshots.
+    assigned = select(Assignment.question_id)
+    for old, new in replacements.items():
+        for question in db.scalars(select(Question).where(Question.material==old, ~Question.id.in_(assigned))):
+            question.material = new
+
+
 def bank_exercise_dict(row):
     return {**{key:getattr(row,key) for key in ['id','prompt','reference','analysis','max_score','level','source']},
             'tags':json.loads(row.tags_json)}
@@ -305,6 +336,7 @@ async def lifespan(app):
         db.flush()
         adopt_legacy_records(db)
         repair_legacy_exam_titles(db)
+        repair_poetry_bodies(db)
         seed_material_bank(db)
         db.commit()
     yield

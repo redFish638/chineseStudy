@@ -78,7 +78,7 @@ def match_entry(content, genre):
 
 
 def listing():
-    return [{key: value for key, value in x.items() if key != 'points'} for x in CATALOG]
+    return [{key: value for key, value in x.items() if key not in {'points', 'legacy_content'}} for x in CATALOG]
 
 # Source links are reference portals, not claims that their full collections were imported.
 RESOURCES = [
@@ -168,25 +168,27 @@ def extract_exam_points(record, material):
 
 
 from .exam_metadata import work_metadata
+from .poetry_text import exam_poetry
 
 EXAM_RECORDS = json.loads((Path(__file__).parent/'data/gaokao_poetry.json').read_text())['example']
 EXAM_BY_ID = {}
 for record in EXAM_RECORDS:
     question = record['question'].strip()
     parts = re.split(r'(?=（\s*1\s*）|\(\s*1\s*\))', question, maxsplit=1)
-    material = parts[0].strip() if len(parts) == 2 else question
+    legacy_material = parts[0].strip() if len(parts) == 2 else question
+    material, poem_prompt = exam_poetry(record)
     exam_id = 'gaokao-poetry-'+str(record['index'])
     legacy_title = record['year']+'年'+record['category']+' · 古代诗歌阅读'
     title,author=work_metadata('poetry',record['index'],material,'古代诗歌阅读')
     entry = dict(id=exam_id, title=title, author=author, legacy_title=legacy_title, exam_year=str(record['year']), exam_region=record['category'], genre='诗歌', collection='公开真题材料',
-        content=material, points=extract_exam_points(record, material), scope='试题所附材料',
+        legacy_content=legacy_material, content=material, points=extract_exam_points(record, material), scope='试题所附材料',
         source='GAOKAO-Bench公开整理，年份与卷别据原数据；非官方校订版。',
         edition='高考题目（不按教材版本划分）',
         source_url='https://github.com/OpenLMLab/GAOKAO-Bench/blob/main/Data/Subjective_Questions/2010-2022_Chinese_Language_Ancient_Poetry_Reading.json',
         analysis_source='公开题目解析提取（非AI）')
     for p in entry['points']: assert p['evidence'] in material
     CATALOG.append(entry)
-    EXAM_BY_ID[exam_id] = {'entry': entry, 'record': record, 'prompt': parts[1].strip() if len(parts) == 2 else question}
+    EXAM_BY_ID[exam_id] = {'entry': entry, 'record': record, 'prompt': poem_prompt}
 
 # Extend authored candidates with original published questions. Difficulty is a teacher-adjustable suggestion.
 _authored_candidates = practice_candidates

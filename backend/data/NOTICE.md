@@ -42,3 +42,7 @@ https://github.com/OpenLMLab/GAOKAO-Bench/blob/6dbb24f8d8439041e5431c4c184a58218
 The application derives 28 distinct reading packets and 84 individual multiple-choice records from 29 upstream groups, retaining numbered answer alignment, source analyses and original score values. See `expansion_manifest.json` for the audit. Apache-2.0 and the attribution above apply. The 2023/2024 Updates repository was inspected but is linked externally only, not redistributed in this release.
 
 `expanded_readings.json` contains public-domain ancient originals and factual titles/bylines extracted from GuWen and chinese-poetry; it excludes GuWen's modern translation and appreciation fields. Chinese-poetry MIT attribution is preserved in `CHINESE_POETRY_LICENSE.txt`. Rules-based reading aids are application code, not claims of upstream expert annotations.
+
+### 高考诗歌正文整理
+
+`exam_poetry_bodies.json` 逐条从原始 `gaokao_poetry.json` 的 29 条材料中提取诗句，移除标题、作者、答题提示、题目和注释标记；不推断修订原始字词。双诗材料以空行分隔，作品顺序放在题目说明。源数据及许可证保持原样；注释和原题由 `poetry_text.py` 保留在题目说明中。

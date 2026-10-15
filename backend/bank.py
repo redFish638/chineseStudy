@@ -150,6 +150,9 @@ def seed_records():
         for record in records:
             id = f'gaokao:{key}:{record["index"]}'
             body, prompt = split_question(record['question'], genre)
+            if key == 'poetry':
+                from .poetry_text import exam_poetry
+                body, prompt = exam_poetry(record)
             from .exam_metadata import work_metadata
             title,author = work_metadata(key,record['index'],body,kind)
             published = record.get('analysis','') or record.get('answer','')
