@@ -510,6 +510,30 @@ def link_page(offset,limit):
     if offset<0 or not 1<=limit<=50: raise HTTPException(422,'分页参数无效')
 
 
+@app.get('/api/question-library', dependencies=[Depends(teacher)])
+def question_library(article: str = '', knowledge_id: str = '', q: str = '', level: str = '',
+                     offset: int = 0, limit: int = 10, db: Session = Depends(db_session)):
+    link_page(offset,limit)
+    if len(q)>200 or len(article)>128 or len(knowledge_id)>128:
+        raise HTTPException(422,'搜索条件过长')
+    if level not in {'','基础','巩固','拓展','未分层'}: raise HTTPException(422,'未知训练层次')
+    index=question_link_index(db)
+    if article and article not in index['articles']: raise HTTPException(404,'文章不存在')
+    if knowledge_id and knowledge_id not in index['knowledge']: raise HTTPException(404,'知识点不存在')
+    keyword=bank.normalized(q)
+    rows=[item for item in index['questions'].values()
+          if (not article or item['article']['id']==article)
+          and (not knowledge_id or any(c['id']==knowledge_id for c in item['knowledge']))
+          and (not level or item['level']==level)
+          and (not keyword or keyword in bank.normalized(item['prompt']+' '+item['article']['title']+' '+
+              index['articles'][item['article']['id']]['author']+' '+' '.join(c['name'] for c in item['knowledge'])))]
+    rows.sort(key=lambda item:(item['article']['title'],{'基础':0,'巩固':1,'拓展':2}.get(item['level'],3),item['id']))
+    articles=sorted((question_links.article_summary(a) for a in index['articles'].values()), key=lambda a:a['title'])
+    categories=sorted((question_links.knowledge_summary(c) for c in index['knowledge'].values()),key=lambda c:c['name'])
+    return dict(items=[question_links.question_summary(item) for item in rows[offset:offset+limit]],
+                total=len(rows),offset=offset,limit=limit,articles=articles,knowledge=categories,stats=index['stats'])
+
+
 @app.get('/api/question-links/{view}',dependencies=[Depends(teacher)])
 def question_link_list(view:str,q:str='',has_questions:bool=False,offset:int=0,limit:int=20,db:Session=Depends(db_session)):
     if view not in {'articles','knowledge'}: raise HTTPException(404,'未知题目索引')
