@@ -26,3 +26,10 @@ The local bank splits passages from question groups where recognizable; the orig
 - Original file: tang_poems.json, retained unchanged (366 entries).
 - Copyright (c) 2016 JackeyGao. MIT license retained in CHINESE_POETRY_LICENSE.txt.
 - 365 entries are added to the supplemental bank; the copy of 登高 is excluded because the curated library already includes the work. Original character forms and source topic tags are retained. These are supplemental public works, not a verified list of all high-school textbook selections. Many have no exercise/annotation.
+
+
+## Additional public-domain original selections and reading guides
+
+`curriculum.json` adds source-attributed original texts/selections only, without modern textbook notes, teaching prompts, illustrations or translations. Source, reading location, rights scope and verification status are stored per item. Classical selections from chinese-poetry retain its existing MIT attribution. Laozi chapter originals are extracted from https://github.com/hailiang-wang/book-of-tao/blob/master/src/ch2.md ; its modern translations and commentary are not copied. Variant wording is retained and labelled.
+
+`authored_analysis.json` contains application-authored, teacher-review-required analysis drafts. `reading_guides.json` contains original study guides for entries whose original text is not embedded. A guide is not an original passage, is not a verified quotation, and cannot silently create a confirmed knowledge point. No protected modern text is replaced by a fabricated original.
