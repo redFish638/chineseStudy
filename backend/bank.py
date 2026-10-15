@@ -150,7 +150,8 @@ def seed_records():
         for record in records:
             id = f'gaokao:{key}:{record["index"]}'
             body, prompt = split_question(record['question'], genre)
-            title = extract_title(body, kind)
+            from .exam_metadata import work_metadata
+            title,author = work_metadata(key,record['index'],body,kind)
             published = record.get('analysis','') or record.get('answer','')
             notes = notes_from_analysis(published, body)
             # Exam-specific features such as translation may be requested in the prompt.
@@ -158,7 +159,7 @@ def seed_records():
             question = {'id':id+':original','prompt':prompt,'reference':record.get('answer',''),
                         'analysis':record.get('analysis',''),'max_score':safe_score(record.get('score')), 'level':'未分层',
                         'tags':tag_ids,'source':'原题整理（非官方校订版）'}
-            result.append(material_record(id,title,'见材料署名',genre,'gaokao',body,source_url,
+            result.append(material_record(id,title,author,genre,'gaokao',body,source_url,
                           'GAOKAO-Bench公开数据，Apache-2.0；年份卷别据原数据',notes,[question],
                           year=str(record['year']),region=str(record['category']),tags=tag_ids))
     poems = json.loads((DATA/'tang_poems.json').read_text())

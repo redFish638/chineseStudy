@@ -166,6 +166,8 @@ def extract_exam_points(record, material):
     return result
 
 
+from .exam_metadata import work_metadata
+
 EXAM_RECORDS = json.loads((Path(__file__).parent/'data/gaokao_poetry.json').read_text())['example']
 EXAM_BY_ID = {}
 for record in EXAM_RECORDS:
@@ -173,8 +175,9 @@ for record in EXAM_RECORDS:
     parts = re.split(r'(?=（\s*1\s*）|\(\s*1\s*\))', question, maxsplit=1)
     material = parts[0].strip() if len(parts) == 2 else question
     exam_id = 'gaokao-poetry-'+str(record['index'])
-    title = record['year']+'年'+record['category']+' · 古代诗歌阅读'
-    entry = dict(id=exam_id, title=title, author='见材料署名', genre='诗歌', collection='公开真题材料',
+    legacy_title = record['year']+'年'+record['category']+' · 古代诗歌阅读'
+    title,author=work_metadata('poetry',record['index'],material,'古代诗歌阅读')
+    entry = dict(id=exam_id, title=title, author=author, legacy_title=legacy_title, exam_year=str(record['year']), exam_region=record['category'], genre='诗歌', collection='公开真题材料',
         content=material, points=extract_exam_points(record, material), scope='试题所附材料',
         source='GAOKAO-Bench公开整理，年份与卷别据原数据；非官方校订版。',
         edition='高考题目（不按教材版本划分）',

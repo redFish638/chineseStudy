@@ -173,6 +173,24 @@ def adopt_legacy_records(db):
     db.execute(delete(LoginSession).where(LoginSession.admin_id == None))
 
 
+def repair_legacy_exam_titles(db):
+    for entry in catalog.CATALOG:
+        if not entry.get('legacy_title'): continue
+        for article in db.scalars(select(Article).where(Article.title==entry['legacy_title'],
+                Article.content==entry['content'],Article.genre==entry['genre'])):
+            article.title=entry['title']
+            if article.author in {'','见材料署名'}: article.author=entry['author']
+    # Older bank adoptions can have the work heading but an unknown byline.
+    revised={item['id']:item for item in bank.seed_records() if item['source_type']=='gaokao'}
+    for material in db.scalars(select(BankMaterial).where(BankMaterial.managed == True, BankMaterial.source_type=='gaokao')):
+        fresh=revised.get(material.id)
+        if not fresh: continue
+        for article in db.scalars(select(Article).where(Article.title==material.title,
+                Article.content==material.body,Article.genre==material.genre)):
+            article.title=fresh['title']
+            if article.author in {'','见材料署名'}: article.author=fresh['author']
+
+
 def bank_exercise_dict(row):
     return {**{key:getattr(row,key) for key in ['id','prompt','reference','analysis','max_score','level','source']},
             'tags':json.loads(row.tags_json)}
@@ -236,6 +254,7 @@ async def lifespan(app):
             db.add(Admin(username=os.getenv('ZHIYU_ADMIN_USER', 'teacher'), password_hash=digest(password)))
         db.flush()
         adopt_legacy_records(db)
+        repair_legacy_exam_titles(db)
         seed_material_bank(db)
         db.commit()
     yield
