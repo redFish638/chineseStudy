@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 
-from . import analysis, catalog, bank, knowledge
+from . import analysis, catalog, bank, knowledge, question_links
 from .curriculum import DIRECTORY_SOURCES
 from .builtin_notes import RULE_SOURCE, AUTHORED_SOURCE, rule_notes
 
@@ -406,6 +406,63 @@ def filter_bank_records(records,q='',genre='',source_type='',tag='',year='',has_
             and (not genre or r['genre']==genre) and (not source_type or r['source_type']==source_type)
             and (not tag or tag in r['tags']) and (not year or r['year']==year)
             and (not has_questions or r['questions'])]
+
+
+def question_link_index(db):
+    return question_links.build(all_bank_records(db),
+        [rowdict(a,'id title genre content') for a in db.scalars(select(Article))],
+        [rowdict(p,'id article_id name description') for p in db.scalars(select(Point))],
+        [rowdict(q,'id point_id level material prompt reference rubric max_score') for q in db.scalars(select(Question))],
+        dict(db.execute(select(Assignment.question_id,func.count()).group_by(Assignment.question_id)).all()))
+
+
+def link_page(offset,limit):
+    if offset<0 or not 1<=limit<=50: raise HTTPException(422,'分页参数无效')
+
+
+@app.get('/api/question-links/{view}',dependencies=[Depends(teacher)])
+def question_link_list(view:str,q:str='',has_questions:bool=False,offset:int=0,limit:int=20,db:Session=Depends(db_session)):
+    if view not in {'articles','knowledge'}: raise HTTPException(404,'未知题目索引')
+    link_page(offset,limit)
+    if len(q)>200: raise HTTPException(422,'搜索词最多200字')
+    index=question_link_index(db);keyword=bank.normalized(q)
+    if view=='articles':
+        rows=[question_links.article_summary(a) for a in index['articles'].values()]
+        rows=[a for a in rows if (not keyword or keyword in bank.normalized(a['title']+' '+a['author']+' '+' '.join(a['aliases']))) and (not has_questions or a['question_count'])]
+        rows.sort(key=lambda a:(-a['question_count'],a['title'],a['id']))
+    else:
+        rows=[question_links.knowledge_summary(k) for k in index['knowledge'].values()]
+        rows=[k for k in rows if (not keyword or keyword in bank.normalized(k['name'])) and (not has_questions or k['question_count'])]
+        rows.sort(key=lambda k:(-k['question_count'],k['name'],k['id']))
+    return dict(items=rows[offset:offset+limit],total=len(rows),offset=offset,limit=limit,stats=index['stats'])
+
+
+@app.get('/api/question-links/questions/{key}',dependencies=[Depends(teacher)])
+def question_link_detail(key:str,db:Session=Depends(db_session)):
+    question=question_link_index(db)['questions'].get(key)
+    if not question: raise HTTPException(404,'题目不存在')
+    return question
+
+
+@app.get('/api/question-links/articles/{key}',dependencies=[Depends(teacher)])
+def question_link_article(key:str,offset:int=0,limit:int=10,db:Session=Depends(db_session)):
+    link_page(offset,limit);index=question_link_index(db);article=index['articles'].get(key)
+    if not article: raise HTTPException(404,'文章不存在')
+    return {**question_links.article_summary(article),'body':article['body'],'notes':article['notes'],
+            'confirmed_points':article['confirmed_points'],
+            'questions':[question_links.question_summary(index['questions'][id]) for id in article['question_ids'][offset:offset+limit]],
+            'offset':offset,'limit':limit}
+
+
+@app.get('/api/question-links/knowledge/{key}',dependencies=[Depends(teacher)])
+def question_link_knowledge(key:str,offset:int=0,article_offset:int=0,limit:int=10,db:Session=Depends(db_session)):
+    link_page(offset,limit);link_page(article_offset,limit)
+    index=question_link_index(db);category=index['knowledge'].get(key)
+    if not category: raise HTTPException(404,'知识点不存在')
+    return {**question_links.knowledge_summary(category),
+            'articles':[question_links.article_summary(index['articles'][id]) for id in category['article_ids'][article_offset:article_offset+limit]],
+            'questions':[question_links.question_summary(index['questions'][id]) for id in category['question_ids'][offset:offset+limit]],
+            'offset':offset,'article_offset':article_offset,'limit':limit}
 
 
 @app.get('/api/bank',dependencies=[Depends(teacher)])

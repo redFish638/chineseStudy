@@ -18,21 +18,21 @@ def categories(name, description=''):
     return [dict(id=hashlib.sha256(normalized.encode()).hexdigest(), name=name, tag='')]
 
 
+def grounded_note(note, body):
+    if not note.get('evidence') or note['evidence'] not in body:
+        return False
+    explanation = re.sub(r'\s+', '', note.get('explanation', ''))
+    # A generic technique paragraph does not establish a device in this text.
+    return not (note.get('origin')=='source' and any(x in explanation for x in
+        ['句首发语词', '分析谓语', '同时还要注意结构上的对称']))
+
+
 def related_materials(group, records):
     if not group['tag']:
         return []
     eligible = []
     for record in records:
-        notes = []
-        for note in record['notes']:
-            if group['tag'] not in note.get('tags', []) or not note.get('evidence') or note['evidence'] not in record['body']:
-                continue
-            explanation = re.sub(r'\s+', '', note.get('explanation', ''))
-            # Generic exam-technique advice is not evidence that this particular
-            # passage uses each device named in the advice.
-            if note.get('origin')=='source' and any(x in explanation for x in ['句首发语词', '分析谓语', '同时还要注意结构上的对称']):
-                continue
-            notes.append(note)
+        notes = [n for n in record['notes'] if group['tag'] in n.get('tags', []) and grounded_note(n, record['body'])]
         if notes:
             eligible.append({**record, 'notes':notes})
     _, ranked = bank.recommend(eligible, group['name'], '', '', '', '', group['tag'])
