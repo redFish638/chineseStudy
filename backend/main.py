@@ -341,7 +341,7 @@ def knowledge_detail(key:str,offset:int=0,limit:int=10,db:Session=Depends(db_ses
             'articles':[{k:v for k,v in a.items() if k!='_content'} for a in group['articles'].values()],
             'related_items':[bank_summary(r) for r in related[offset:offset+limit]],
             'related_offset':offset,'related_limit':limit,
-            'notice':'按通用知识点归类，本篇学习目标及原文依据保持原样。关联材料来自完整文章题库，按知识点标签、解析引文匹配并去重，排除本组已确认作品；候选解析须教师核对，选用后不会自动确认。'}
+            'notice':'按通用知识点归类，本篇知识点及原文依据保持原样。关联材料来自完整文章题库，按知识点标签、解析引文匹配并去重，排除本组已确认作品；候选解析须教师核对，选用后不会自动确认。'}
 
 
 @app.get('/api/catalog', dependencies=[Depends(teacher)])

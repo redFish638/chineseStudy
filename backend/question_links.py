@@ -81,7 +81,7 @@ def build(materials, saved_articles, points, teaching_questions, assignment_coun
         add_question(dict(**{k:question[k] for k in ['level','prompt','material','reference','rubric','max_score','point_id']},
             id='teaching:'+str(question['id']),original_id=question['id'],origin='teaching',bank_material_id=None,
             analysis='',source='教师保存的分层训练题',year='',region='',assignment_count=assignment_counts.get(question['id'],0),
-            tag_basis='按题目所属学习目标归入通用知识点',article_basis=basis,
+            tag_basis='按题目所属知识点归入通用知识点',article_basis=basis,
             goal_article=dict(id=owner['id'],title=owner['title'],saved_id=point['article_id'],point_name=point['name'])),
             article,knowledge.categories(point['name'],point['description']))
 
