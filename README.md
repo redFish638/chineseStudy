@@ -1,0 +1,48 @@
+# 知语 · 高中语文分层研习
+
+首版教学应用，沿用原型界面，现已连接真实后端与数据库。支持单教师登录、文章导入与编辑、知识点拆解与编辑、基础/巩固/拓展题库、学生专属作答链接、教师诊断评分、关联原作答的巩固训练。
+
+## 本地运行
+
+要求 Python 3.10+，无 Node 构建步骤。
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+# 使用安全终端设置环境变量，值不要提交到 Git。
+export ZHIYU_ADMIN_USER=teacher
+read -r -s -p '设置教师初始密码（至少12位）: ' ZHIYU_ADMIN_PASSWORD
+export ZHIYU_ADMIN_PASSWORD
+.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8001 --no-access-log
+```
+
+默认 SQLite 保存到 `data/zhiyu.db`，不再使用浏览器 localStorage。正式部署使用项目专属 MySQL；`DATABASE_URL` 示例见 `.env.example`。密码仅在首次初始化账号时生效，后续不会自动重置密码。数据库只创建 `zhiyu_` 前缀表，不删除已有数据。后续结构升级需要数据库迁移，当前为首版初始化。
+
+## 教学闭环
+
+1. 保存文章 → 创建知识点，或从文体建议选择方向后完善可观察的学习目标。
+2. 每个知识点配置基础、巩固、拓展题目，填写训练材料、问题、参考答案与评分标准。
+3. 为学生生成任务链接，私发给该学生。链接持有者可以查看并提交一次作答。
+4. 教师查看作答，填写得分、具体问题标签、依据与反馈。学生复核前看不到参考答案和评分标准。
+5. 从同一知识点选另一道题创建关联再练。学生在原任务页刷新即可看到反馈和巩固入口。
+
+已分发的题目锁定，不允许修改题干或评分依据；修改需求应新建题目。文章、知识点和未分发题目可编辑。刷新页面数据仍然保留。
+
+## AI 接入
+
+当前按用户要求完成教师主导流程，不连接外部 AI。`backend/ai.py` 定义文章拆解、出题和诊断的结构化接口，后续适配服务商，并由教师确认后入库。不以关键词匹配冒充自动评分。
+
+## 检查
+
+```sh
+.venv/bin/python -m pytest -q
+node --check app.js
+```
+
+`tests/test_workflow.py` 覆盖权限、答案保密、提交、评分、分层再练和持久化。浏览器集成检查见 `tests/browser.cjs`，需要 Playwright 与可用 Chromium，通过临时数据库运行，不接触生产数据。可用 `python tests/run_browser.py` 启动临时测试服务并执行浏览器验收；需要 Node 环境能够解析 playwright，及系统 Chromium 或 Playwright 浏览器。
+
+## 部署与范围
+
+Ubuntu + systemd + Nginx + MySQL 部署步骤见 [deploy/README.md](deploy/README.md)。模板不含真实凭据。当前未部署到腾讯云，MySQL 的真实连接及兼容性需在取得连接配置后验证。
+
+这是单教师、小范围教学试用首版，学生以专属链接访问。尚无班级批量分发、学生账号、多教师隔离、任务撤销及数据导出。现有网页原型的浏览器记录不会自动迁入新数据库。

@@ -1,0 +1,21 @@
+[Unit]
+Description=Zhiyu teaching application
+After=network.target
+
+[Service]
+User=zhiyu
+Group=zhiyu
+WorkingDirectory=/opt/zhiyu
+EnvironmentFile=/etc/zhiyu.env
+ExecStart=/opt/zhiyu/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8001 --no-access-log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/zhiyu/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
