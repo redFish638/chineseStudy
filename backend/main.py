@@ -9,6 +9,9 @@ import unicodedata
 from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
+from collections import OrderedDict
+from functools import wraps
+from starlette.middleware.gzip import GZipMiddleware
 
 from . import analysis, catalog, bank, knowledge, question_links
 from .curriculum import DIRECTORY_SOURCES
@@ -30,6 +33,53 @@ class TenantSession(Session):
 
 DB = sessionmaker(engine, class_=TenantSession, expire_on_commit=False)
 SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
+
+# Process-local derived data only: never cache authentication or student responses.
+# Keys include account identity; TTL bounds freshness across multiple workers.
+_derived_cache = OrderedDict()
+_cache_lock = threading.RLock()
+
+def clear_derived_cache():
+    with _cache_lock:
+        _derived_cache.clear()
+
+def cached_teacher_data(function):
+    @wraps(function)
+    def cached(db):
+        owner = db.info.get('owner_id')
+        if owner is None:
+            return function(db)
+        key = (function.__name__, owner)
+        with _cache_lock:
+            entry = _derived_cache.get(key)
+            if entry and time.monotonic() < entry[0]:
+                _derived_cache.move_to_end(key)
+                return entry[1]
+            # Serialise initial builds so concurrent requests do not duplicate work.
+            value = function(db)
+            _derived_cache[key] = (time.monotonic() + 30, value)
+            _derived_cache.move_to_end(key)
+            while len(_derived_cache) > 12:
+                _derived_cache.popitem(last=False)
+            return value
+    return cached
+
+@event.listens_for(TenantSession, 'before_flush')
+def track_cache_changes(db, context, instances):
+    if any(type(row).__name__ in {'Article', 'Point', 'Question', 'Assignment',
+           'Submission', 'BankMaterial', 'BankExercise'}
+           for row in (*db.new, *db.dirty, *db.deleted)):
+        db.info['invalidate_derived'] = True
+
+@event.listens_for(TenantSession, 'do_orm_execute')
+def track_bulk_cache_changes(execute_state):
+    if execute_state.is_update or execute_state.is_delete or execute_state.is_insert:
+        execute_state.session.info['invalidate_derived'] = True
+
+@event.listens_for(TenantSession, 'after_commit')
+def expire_committed_data(db):
+    if db.info.pop('invalidate_derived', False):
+        clear_derived_cache()
 
 class Base(DeclarativeBase):
     pass
@@ -260,6 +310,7 @@ async def lifespan(app):
     yield
 
 app = FastAPI(title='知语教学 API', lifespan=lifespan, docs_url=None, redoc_url=None)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 
 @app.middleware('http')
 async def security(request: Request, call_next):
@@ -400,6 +451,7 @@ def add_point(body: PointIn, db: Session = Depends(db_session)):
     row = Point(**body.model_dump()); db.add(row); db.commit()
     return {'id': row.id}
 
+@cached_teacher_data
 def knowledge_groups(db):
     """Project confirmed records into common categories without rewriting them."""
     counts = dict(db.execute(select(Question.point_id,func.count()).group_by(Question.point_id)).all())
@@ -491,6 +543,7 @@ def open_catalog(entry_id: str, db: Session = Depends(db_session)):
         db.commit()
     return {'id': article.id, 'has_analysis': entry['has_analysis']}
 
+@cached_teacher_data
 def all_bank_records(db):
     questions={}
     for question in db.scalars(select(BankExercise)):
@@ -517,6 +570,7 @@ def filter_bank_records(records,q='',genre='',source_type='',tag='',year='',has_
             and (not has_questions or r['questions'])]
 
 
+@cached_teacher_data
 def question_link_index(db):
     return question_links.build(all_bank_records(db),
         [rowdict(a,'id title genre content') for a in db.scalars(select(Article))],

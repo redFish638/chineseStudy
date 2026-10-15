@@ -159,3 +159,9 @@ Ubuntu + systemd + Nginx + MySQL 部署步骤见 [deploy/README.md](deploy/READM
 - 原始题源为GAOKAO-Bench的2010—2022现代文客观题文件，Apache-2.0。2023—2024补充仓库仅提供外部入口，本次不打包未核对许可的数据。
 - `scripts/build_public_expansion.py` 可从固定来源快照重建数据；只提取古代原文，不复制GuWen现代译文和鉴赏字段。`backend/data/expansion_manifest.json` 保存来源校验值、跳过原因和逐组题目对齐记录。
 - 验证：`python -m pytest -q`；`TEST_BROWSER_SCRIPT=tests/expanded-sources-browser.cjs python tests/run_browser.py`。
+
+### 请求与索引缓存
+
+文章库在当前登录会话的浏览器内存中复用，切换栏目不重复下载全文；退出登录时清空。个人工作区每次切换仍刷新，以及时获取学生作答。API 保留 `Cache-Control: no-store`，支持 gzip 压缩；不把私人数据放入浏览器持久缓存或共享 HTTP 缓存。
+
+后端对材料、知识点分组和题目关联索引使用按账号隔离的进程内缓存，30 秒过期，最多保留 12 个派生对象。教学记录或材料提交修改时清除缓存；登录鉴权与学生任务响应不缓存。多进程部署时其他进程最多延迟 30 秒更新；重启服务自动清空，无需 Redis 或数据库改动。
