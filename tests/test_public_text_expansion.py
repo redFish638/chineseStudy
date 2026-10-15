@@ -34,7 +34,7 @@ def test_new_public_texts_have_whole_boundaries_and_exclude_neighbor_and_publish
 
 def test_every_remaining_directory_has_original_guide_and_official_reading_entry(teacher_client):
     c=teacher_client;data=c.get('/api/catalog').json()
-    assert data['readable']==data['analyzable']==136
+    assert data['readable']==data['analyzable']==905
     assert data['guided_directories']==56
     missing=[x for x in data['items'] if not x['available']]
     assert len(missing)==56

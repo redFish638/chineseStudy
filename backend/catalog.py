@@ -82,6 +82,7 @@ def listing():
 
 # Source links are reference portals, not claims that their full collections were imported.
 RESOURCES = [
+    {'name':'2023—2024高考补充数据入口（外部资源）','url':'https://github.com/OpenLMLab/GAOKAO-Bench-Updates','note':'已核对语文数据目录；该补充仓库未见独立许可证，本应用仅保留入口，未将其题目打包。','status':'外部资源'},
     {'name': '国家中小学智慧教育平台 · 教材入口', 'url': 'https://basic.smartedu.cn/',
      'note': '查找不同出版社、版本及册次；教材内容以平台及任教教材为准。', 'status': '官方入口；当前开发环境访问返回403，未完成在线核验'},
     {'name': 'GAOKAO-Bench · 2010—2022 高考题整理', 'url': 'https://github.com/OpenLMLab/GAOKAO-Bench',
@@ -212,3 +213,7 @@ extend_catalog(CATALOG)
 
 from .textbook_editions import attach_editions, EDITIONS as EDITION_OPTIONS
 attach_editions(CATALOG)
+
+# Additional public-domain practice texts are not labelled as prescribed textbook selections.
+from .public_expansion import extend_catalog as extend_public_readings
+extend_public_readings(CATALOG)

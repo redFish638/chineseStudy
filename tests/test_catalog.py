@@ -97,7 +97,8 @@ def test_public_exam_material_and_original_questions(teacher_client):
     c = teacher_client
     items = c.get('/api/catalog').json()['items']
     exam_entries = [x for x in items if x['collection'] == '公开真题材料']
-    assert len(exam_entries) == 29
+    assert len(exam_entries) == 57
+    assert sum(x['genre']=='诗歌' for x in exam_entries)==29
     entry = exam_entries[0]
     article_id = c.post('/api/catalog/'+entry['id']+'/open').json()['id']
     result = c.post(f'/api/articles/{article_id}/analyze', json={}).json()

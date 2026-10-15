@@ -33,3 +33,12 @@ The local bank splits passages from question groups where recognizable; the orig
 `curriculum.json` adds source-attributed original texts/selections only, without modern textbook notes, teaching prompts, illustrations or translations. Source, reading location, rights scope and verification status are stored per item. Classical selections from chinese-poetry retain its existing MIT attribution. Laozi chapter originals are extracted from https://github.com/hailiang-wang/book-of-tao/blob/master/src/ch2.md ; its modern translations and commentary are not copied. Variant wording is retained and labelled.
 
 `authored_analysis.json` contains application-authored, teacher-review-required analysis drafts. `reading_guides.json` contains original study guides for entries whose original text is not embedded. A guide is not an original passage, is not a verified quotation, and cannot silently create a confirmed knowledge point. No protected modern text is replaced by a fabricated original.
+
+## Additional objective reading snapshot
+
+`gaokao_modern_objective.json` is the unchanged source file:
+https://github.com/OpenLMLab/GAOKAO-Bench/blob/6dbb24f8d8439041e5431c4c184a582182a6ce9c/Data/Objective_Questions/2010-2022_Chinese_Modern_Lit.json
+
+The application derives 28 distinct reading packets and 84 individual multiple-choice records from 29 upstream groups, retaining numbered answer alignment, source analyses and original score values. See `expansion_manifest.json` for the audit. Apache-2.0 and the attribution above apply. The 2023/2024 Updates repository was inspected but is linked externally only, not redistributed in this release.
+
+`expanded_readings.json` contains public-domain ancient originals and factual titles/bylines extracted from GuWen and chinese-poetry; it excludes GuWen's modern translation and appreciation fields. Chinese-poetry MIT attribution is preserved in `CHINESE_POETRY_LICENSE.txt`. Rules-based reading aids are application code, not claims of upstream expert annotations.

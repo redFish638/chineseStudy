@@ -14,14 +14,14 @@ def test_bank_sources_paging_and_filters(teacher_client):
     c=teacher_client
     result=c.get('/api/bank?limit=10').json()
     assert result['stats']['materials']==len(bank.seed_records())
-    assert result['stats']['sources']['gaokao']==111
+    assert result['stats']['sources']['gaokao']==139
     assert result['stats']['sources']['mock']==0
-    assert result['stats']['questions']==186
+    assert result['stats']['questions']==270
     page2=c.get('/api/bank?limit=10&offset=10').json()
     assert not ({x['id'] for x in result['items']}&{x['id'] for x in page2['items']})
     assert c.get('/api/bank?source_type=mock').json()['total']==0
     novels=c.get('/api/bank?genre=阅读&source_type=gaokao&has_questions=true').json()
-    assert novels['total']==53
+    assert novels['total']==81
     assert all(x['genre']=='阅读' and x['question_count'] for x in novels['items'])
     assert c.get('/api/bank?tag=not-a-tag').status_code==422
     assert c.get('/api/bank?offset=-1').status_code==422

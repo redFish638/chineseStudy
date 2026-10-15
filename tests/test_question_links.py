@@ -8,7 +8,7 @@ def test_all_existing_questions_have_two_link_dimensions_without_mutating_source
     records=bank.seed_records();before=deepcopy(records)
     index=question_links.build(records,[],[],[],{})
     assert records==before
-    assert index['stats']['questions']==index['stats']['bank_questions']==186
+    assert index['stats']['questions']==index['stats']['bank_questions']==270
     assert index['stats']['teaching_questions']==0
     assert len(index['articles'])<len(records)  # Same-body reading editions merge, questions never disappear.
     assert 'unclassified' not in index['knowledge']
@@ -26,7 +26,7 @@ def test_all_existing_questions_have_two_link_dimensions_without_mutating_source
 def test_article_knowledge_question_round_trip_and_pagination(teacher_client):
     c=teacher_client
     result=c.get('/api/question-links/articles?q=登高').json()
-    assert result['stats']['questions']==186 and result['total']==1
+    assert result['stats']['questions']==270 and result['total']==1
     article=result['items'][0]
     detail=c.get('/api/question-links/articles/'+article['id']).json()
     assert detail['title']=='登高' and detail['question_count']==9

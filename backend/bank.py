@@ -128,7 +128,7 @@ def material_record(id, title, author, genre, source_type, body, source_url, sou
 
 def seed_records():
     result = []
-    curated = [x for x in catalog.CATALOG if not x['id'].startswith('gaokao-') and not x.get('curriculum_added')]
+    curated = [x for x in catalog.CATALOG if not x['id'].startswith('gaokao-') and not x.get('curriculum_added') and not x.get('supplemental')]
     for entry in curated:
         notes = [{**p, 'origin':'authored', 'tags':point_tags(p['name'])} for p in entry['points']]
         questions = []
@@ -185,6 +185,13 @@ def seed_records():
                       'textbook' if entry['books'] else 'public',entry['content'],entry['source_url'],
                       entry['source']+' '+entry['text_status'],[{**p,'tags':point_tags(p['name']),'origin':'authored'} for p in entry['points']],[],
                       review='公开原文或选录，教材范围与字句待核对；知识点为本应用逐篇编写、待教师审阅，暂无原题'))
+    from .public_expansion import READINGS,MODERN
+    for row in READINGS+MODERN:
+        notes=rule_notes(row['title'],row['genre'],row['body'])
+        result.append(material_record(row['id'],row['title'],row['author'],row['genre'],
+            'gaokao' if row.get('questions') else 'public',row['body'],row['source_url'],row['source_label'],
+            notes,row.get('questions',[]),year=row.get('year',''),region=row.get('region',''),
+            review='来源文本与字句须教师核对；规则辅助研读提示非逐篇审校结论，真题选项与答案据来源保留'))
     return result
 
 

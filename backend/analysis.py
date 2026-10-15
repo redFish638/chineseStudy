@@ -50,7 +50,7 @@ def analyze(article, mode='auto'):
     entry = match_entry(article.content, article.genre)
     if mode != 'ai' and entry and entry['points']:
         return {'source': entry.get('analysis_source', '内置教研解析（非AI）'), 'points': [AnalysisPoint(**x).model_dump() for x in entry['points']],
-                'notice': '预编写篇目解析草稿，未经教师审校；核对当前原文后确认保存。' if entry.get('analysis_source')=='内置篇目解析（待审校）' else '按篇目匹配内置教研笔记，或从公开题目解析中按类别提取；不是实时AI分析，需审核后保存。'}
+                'notice': '规则辅助研读提示，仅定位可见语言线索，不是逐篇教研审定结论，须教师审阅。' if entry.get('analysis_source')=='内置研读解析（规则辅助）' else '预编写篇目解析草稿，未经教师审校；核对当前原文后确认保存。' if entry.get('analysis_source')=='内置篇目解析（待审校）' else '按篇目匹配内置教研笔记，或从公开题目解析中按类别提取；不是实时AI分析，需审核后保存。'}
     if not configured():
         raise ValueError('该文章尚无内置解析，且未配置AI服务。请选择已有内置解析的篇目，或配置AI后分析。')
     base = os.environ['ZHIYU_AI_BASE_URL'].rstrip('/')

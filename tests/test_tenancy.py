@@ -56,7 +56,7 @@ def test_imported_bank_is_private_and_seed_bank_is_shared(client):
     assert c.get('/api/bank?q=A的学校卷').json()['total']==0
     assert c.get('/api/bank/materials/'+key).status_code==404
     assert c.post('/api/bank/materials/'+key+'/open').status_code==404
-    assert c.get('/api/catalog').json()['bank_materials']==576
+    assert c.get('/api/catalog').json()['bank_materials']==1345
     assert c.get('/api/bank?source_type=textbook').status_code==200
     assert c.post('/api/bank/import',json={'materials':[item]}).json()['created']==1
     assert c.get('/api/bank?q=A的学校卷').json()['items'][0]['id']!=key

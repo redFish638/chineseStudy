@@ -1,0 +1,395 @@
+{
+  "sources": {
+    "guwen_sha256": "3b5da8690a9562b5215210fee5bc6ec0489ba829729b5939156c0208ac8c13a0",
+    "song_sha256": "ca5d74f7fdb9d5a6acc22a7c8b4395228cad4bb8be53df44c19ba83ab6983b20",
+    "gaokao_commit": "6dbb24f8d8439041e5431c4c184a582182a6ce9c",
+    "gaokao_zip_sha256": "d668ff77bf0fd2dc4df827051e650e518f414a33c9f396325c88fd6788c5e220"
+  },
+  "original_readings": 741,
+  "modern_materials": 28,
+  "modern_questions": 84,
+  "skipped_originals": [
+    {
+      "kind": "guwen",
+      "title": "庖丁解牛",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "邴原泣学",
+      "reason": "原始署名需复核"
+    },
+    {
+      "kind": "guwen",
+      "title": "大道之行也",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "离骚",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "鸿门宴",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "苏武传(节选)",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "登泰山记",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "杀驼破瓮",
+      "reason": "原始署名需复核"
+    },
+    {
+      "kind": "guwen",
+      "title": "项脊轩志",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "齐桓晋文之事",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "促织",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "季氏将伐颛臾",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "滕王阁序",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "阿房宫赋",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "兰亭集序 / 兰亭序",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "烛之武退秦师",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "过秦论",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "归去来兮辞·并序",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "陈情表",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "石钟山记",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "谏逐客书",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "屈原列传",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "报任安书/报任少卿书",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "谏太宗十思疏",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "种树郭橐驼传",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "黄冈竹楼记",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "伶官传序/五代史伶官传序",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "六国论",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "guwen",
+      "title": "上枢密韩太尉书",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "桂枝香·登临送目",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "江神子・江城子·十年生死两茫茫",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "高阳台·频听银签",
+      "reason": "元数据不完整、正文过短或超出安全录入长度"
+    },
+    {
+      "kind": "song",
+      "title": "永遇乐·千古江山",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "宴山亭・燕山亭·幽梦初回",
+      "reason": "元数据不完整、正文过短或超出安全录入长度"
+    },
+    {
+      "kind": "song",
+      "title": "扬州慢·淮左名都",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "满庭芳·月洗高梧",
+      "reason": "元数据不完整、正文过短或超出安全录入长度"
+    },
+    {
+      "kind": "song",
+      "title": "声声慢·寻寻觅觅",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "菩萨蛮·郁孤台下清江水",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "青玉案·东风夜放花千树",
+      "reason": "规范化正文重复"
+    },
+    {
+      "kind": "song",
+      "title": "念奴娇·洞庭青草",
+      "reason": "规范化正文重复"
+    }
+  ],
+  "exam_audit": [
+    {
+      "index": 0,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 1,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 2,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 3,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 4,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 5,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 6,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 7,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 8,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 9,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 10,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 11,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 12,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 13,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 14,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 15,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 16,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 17,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 18,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 19,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 20,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 21,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 22,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 23,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 24,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 25,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 26,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 27,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    },
+    {
+      "index": 28,
+      "accepted": true,
+      "source_answers": 3,
+      "parsed_questions": 3
+    }
+  ],
+  "external_only": [
+    {
+      "url": "https://github.com/OpenLMLab/GAOKAO-Bench-Updates",
+      "reason": "2023/2024补充仓库未见独立许可证，本次仅提供入口，未随应用打包"
+    }
+  ]
+}

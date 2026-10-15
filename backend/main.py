@@ -466,7 +466,7 @@ def article_catalog(db:Session=Depends(db_session)):
             'analyzable': sum(x['has_analysis'] for x in catalog.CATALOG),
             'guided_directories': sum(x['has_guide'] and not x['available'] for x in catalog.CATALOG),
             'directory_sources': DIRECTORY_SOURCES,
-            'scope': '统编五册课文、诵读与整本书阅读参考目录，含跨印次差异篇目；另列2020课标72篇推荐参考。尚未覆盖所有教材版本，推荐不等于当前高考范围。'}
+            'scope': '统编五册课文、诵读与整本书阅读参考目录，含跨印次差异篇目；另列2020课标72篇推荐参考。另含古文、宋词及现代文阅读拓展材料。拓展材料不等同教材指定篇目，推荐不等于当前高考范围。'}
 
 @app.get('/api/catalog/{entry_id}/full-text', dependencies=[Depends(teacher)])
 def catalog_full_text(entry_id: str):
