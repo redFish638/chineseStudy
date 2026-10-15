@@ -34,10 +34,10 @@ def test_new_public_texts_have_whole_boundaries_and_exclude_neighbor_and_publish
 
 def test_every_remaining_directory_has_original_guide_and_official_reading_entry(teacher_client):
     c=teacher_client;data=c.get('/api/catalog').json()
-    assert data['readable']==data['analyzable']==131
-    assert data['guided_directories']==61
+    assert data['readable']==data['analyzable']==134
+    assert data['guided_directories']==58
     missing=[x for x in data['items'] if not x['available']]
-    assert len(missing)==61
+    assert len(missing)==58
     for row in missing:
         assert row['has_guide'] and row['guide']['topics'] and not row['has_analysis']
         assert row['content']==''
@@ -63,3 +63,33 @@ def test_new_originals_open_analyze_and_confirm_without_ai(teacher_client):
         assert all(p['evidence'] in row['content'] for p in result['points'])
         assert c.post(f"/api/articles/{opened['id']}/confirm-analysis",json={k:result[k] for k in ['source','article_digest','points']}).json()['created']==3
     assert c.get('/api/knowledge-library').json()['stats']['confirmed_records']==18
+
+
+def test_more_public_originals_have_grounded_analysis_and_full_book_is_separate(teacher_client):
+    c = teacher_client
+    items = c.get('/api/catalog').json()['items']
+    for title in ['红楼梦', '哈姆莱特（节选）', '古代文论选段']:
+        row = next(x for x in items if x['title'] == title)
+        assert row['available'] and row['has_analysis']
+        assert len(row['content'].encode()) < 65535  # Existing MySQL TEXT column.
+        opened = c.post('/api/catalog/'+row['id']+'/open').json()
+        result = c.post(f"/api/articles/{opened['id']}/analyze", json={}).json()
+        assert result['source'] == '内置篇目解析（待审校）'
+        assert len(result['points']) == 3
+        assert all(p['evidence'] in row['content'] for p in result['points'])
+        assert c.post(f"/api/articles/{opened['id']}/confirm-analysis", json={k:result[k] for k in ['source','article_digest','points']}).json()['created'] == 3
+    red = next(x for x in items if x['title'] == '红楼梦')
+    response = c.get('/api/catalog/'+red['id']+'/full-text')
+    assert response.status_code == 200
+    assert response.headers['content-type'].startswith('text/plain')
+    assert 'no-store' in response.headers['cache-control']
+    assert len(response.text) > 800000
+    assert response.text.count('回 ') == 120
+    assert '第一百二十回 甄士隐详说太虚情 贾雨村归结红楼梦' in response.text
+    assert len(red['content']) < 15000 and red['content'].startswith('第三回')
+    ham = next(x for x in items if x['title'] == '哈姆莱特（节选）')
+    assert '朱生豪' in ham['rights'] and ham['content'].endswith('（同下）')
+    assert '学习提示' not in ham['content'] and '在莎士比亚笔下' not in ham['content']
+    assert c.get('/api/catalog/'+ham['id']+'/full-text').status_code == 404
+    c.cookies.clear()
+    assert c.get('/api/catalog/'+red['id']+'/full-text').status_code == 401

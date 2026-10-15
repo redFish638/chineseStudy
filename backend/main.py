@@ -354,6 +354,15 @@ def article_catalog(db:Session=Depends(db_session)):
             'directory_sources': DIRECTORY_SOURCES,
             'scope': '统编五册课文、诵读与整本书阅读参考目录，含跨印次差异篇目；另列2020课标72篇推荐参考。尚未覆盖所有教材版本，推荐不等于当前高考范围。'}
 
+@app.get('/api/catalog/{entry_id}/full-text', dependencies=[Depends(teacher)])
+def catalog_full_text(entry_id: str):
+    entry = catalog.get_entry(entry_id)
+    if not entry or entry.get('full_text') != 'hongloumeng':
+        raise HTTPException(404, '此篇暂无内置全书文本')
+    return FileResponse(ROOT/'backend/data/hongloumeng.txt', media_type='text/plain; charset=utf-8',
+                        headers={'Content-Disposition': 'inline'})
+
+
 @app.post('/api/catalog/{entry_id}/open', dependencies=[Depends(teacher)])
 def open_catalog(entry_id: str, db: Session = Depends(db_session)):
     entry = catalog.get_entry(entry_id)

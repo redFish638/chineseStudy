@@ -23,7 +23,7 @@ def extend_catalog(catalog):
     for row in records:
         match = next((x for x in original if title_key(x['title']) == title_key(row['title'])), None)
         metadata = {k:row[k] for k in ['books','recommended','sections','directory_note']}
-        metadata.update(guide=GUIDES.get(row['title']),reading_url=row.get('reading_url',''),reading_note=row.get('reading_note',''),rights=row.get('rights',''),source_checked=row.get('source_checked',''))
+        metadata.update(guide=GUIDES.get(row['title']),reading_url=row.get('reading_url',''),reading_note=row.get('reading_note',''),full_text=row.get('full_text',''),full_text_label=row.get('full_text_label',''),rights=row.get('rights',''),source_checked=row.get('source_checked',''))
         if match:
             match.update(metadata)
             continue  # Preserve existing article bodies, analyses, and stable identifiers.
