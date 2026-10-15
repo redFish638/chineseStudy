@@ -5,6 +5,7 @@ import hmac
 import os
 import secrets
 import time
+import unicodedata
 from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
@@ -289,6 +290,54 @@ def add_point(body: PointIn, db: Session = Depends(db_session)):
     require(db, Article, body.article_id)
     row = Point(**body.model_dump()); db.add(row); db.commit()
     return {'id': row.id}
+
+def knowledge_groups(db):
+    """A live index of confirmed/saved Point records; no speculative catalog tags."""
+    counts = dict(db.execute(select(Question.point_id,func.count()).group_by(Question.point_id)).all())
+    grouped = {}
+    for point, article in db.execute(select(Point,Article).join(Article,Point.article_id==Article.id).order_by(Point.id)):
+        normalized = ' '.join(unicodedata.normalize('NFKC',point.name).casefold().split())
+        key = hashlib.sha256(normalized.encode()).hexdigest()
+        group = grouped.setdefault(key,dict(id=key,name=point.name,names=[],articles={},point_count=0,question_count=0))
+        if point.name not in group['names']: group['names'].append(point.name)
+        item = group['articles'].setdefault(article.id,dict(id=article.id,title=article.title,genre=article.genre,points=[],question_count=0))
+        count = counts.get(point.id,0)
+        item['points'].append(dict(id=point.id,name=point.name,description=point.description,question_count=count))
+        item['question_count'] += count
+        group['point_count'] += 1
+        group['question_count'] += count
+    return grouped
+
+
+def knowledge_summary(group):
+    return {**{k:group[k] for k in ['id','name','names','point_count','question_count']},
+            'article_count':len(group['articles']),
+            'articles':[{k:a[k] for k in ['id','title','genre']} for a in group['articles'].values()]}
+
+
+@app.get('/api/knowledge-library',dependencies=[Depends(teacher)])
+def knowledge_library(q:str='',genre:str='',offset:int=0,limit:int=20,db:Session=Depends(db_session)):
+    if len(q)>200 or offset<0 or not 1<=limit<=50: raise HTTPException(422,'搜索或分页参数无效')
+    if genre and genre not in {'诗歌','文言文','阅读'}: raise HTTPException(422,'未知文体')
+    groups = list(knowledge_groups(db).values())
+    keyword = unicodedata.normalize('NFKC',q).casefold().strip()
+    selected = [g for g in groups if (not genre or any(a['genre']==genre for a in g['articles'].values())) and
+                (not keyword or keyword in unicodedata.normalize('NFKC',' '.join(g['names'])+' '+
+                    ' '.join(a['title']+' '+' '.join(p['description'] for p in a['points']) for a in g['articles'].values())).casefold())]
+    selected.sort(key=lambda g:(-len(g['articles']),g['name'],g['id']))
+    return {'items':[knowledge_summary(g) for g in selected[offset:offset+limit]],'total':len(selected),
+            'offset':offset,'limit':limit,'stats':{'knowledge_points':len(groups),
+            'confirmed_records':sum(g['point_count'] for g in groups),
+            'articles':len({a for g in groups for a in g['articles']})}}
+
+
+@app.get('/api/knowledge-library/{key}',dependencies=[Depends(teacher)])
+def knowledge_detail(key:str,db:Session=Depends(db_session)):
+    group = knowledge_groups(db).get(key)
+    if not group: raise HTTPException(404,'知识点不存在或已更名，请刷新知识点库')
+    return {**knowledge_summary(group),'articles':list(group['articles'].values()),
+            'notice':'这里仅索引已保存的知识点与教学文章。同名归组不等于已审定语义相同；每篇原文依据与训练目标分别保留。'}
+
 
 @app.get('/api/catalog', dependencies=[Depends(teacher)])
 def article_catalog(db:Session=Depends(db_session)):
