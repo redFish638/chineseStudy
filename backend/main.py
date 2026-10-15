@@ -16,16 +16,19 @@ from .builtin_notes import RULE_SOURCE, AUTHORED_SOURCE, rule_notes
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, create_engine, delete, select, func, or_
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, create_engine, delete, select, func, or_, event, inspect, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker, with_loader_criteria
 
 ROOT = Path(__file__).resolve().parent.parent
 URL = os.getenv('DATABASE_URL', f'sqlite:///{ROOT}/data/zhiyu.db')
 if URL.startswith('sqlite:'):
     (ROOT / 'data').mkdir(exist_ok=True)
 engine = create_engine(URL, pool_pre_ping=True, connect_args={'check_same_thread': False} if URL.startswith('sqlite:') else {})
-DB = sessionmaker(engine, expire_on_commit=False)
+class TenantSession(Session):
+    pass
+
+DB = sessionmaker(engine, class_=TenantSession, expire_on_commit=False)
 SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
 
 class Base(DeclarativeBase):
@@ -41,12 +44,15 @@ class LoginSession(Base):
     __tablename__ = 'zhiyu_login_sessions'
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
     expires: Mapped[int] = mapped_column(Integer)
+    admin_id: Mapped[int | None] = mapped_column(ForeignKey('zhiyu_admins.id'), nullable=True)
 
 class Article(Base):
     __tablename__ = 'zhiyu_articles'
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('zhiyu_admins.id'), nullable=True, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
     genre: Mapped[str] = mapped_column(String(20))
+    author: Mapped[str] = mapped_column(String(100), default='')
     content: Mapped[str] = mapped_column(Text)
 
 class Point(Base):
@@ -89,6 +95,7 @@ class Submission(Base):
 
 class BankMaterial(Base):
     __tablename__ = 'zhiyu_bank_materials'
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('zhiyu_admins.id'), nullable=True, index=True)
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
     author: Mapped[str] = mapped_column(String(100))
@@ -117,6 +124,53 @@ class BankExercise(Base):
     level: Mapped[str] = mapped_column(String(20))
     tags_json: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(200))
+
+
+@event.listens_for(TenantSession, 'do_orm_execute')
+def scope_private_records(execute_state):
+    owner = execute_state.session.info.get('owner_id')
+    if owner is None or not execute_state.is_select:
+        return
+    article_ids = select(Article.id).where(Article.owner_id == owner)
+    point_ids = select(Point.id).where(Point.article_id.in_(article_ids))
+    question_ids = select(Question.id).where(Question.point_id.in_(point_ids))
+    assignment_ids = select(Assignment.id).where(Assignment.question_id.in_(question_ids))
+    material_ids = select(BankMaterial.id).where(or_(BankMaterial.managed == True, BankMaterial.owner_id == owner))
+    rules = [(Article, Article.owner_id == owner), (Point, Point.article_id.in_(article_ids)),
+             (Question, Question.point_id.in_(point_ids)), (Assignment, Assignment.question_id.in_(question_ids)),
+             (Submission, Submission.assignment_id.in_(assignment_ids)),
+             (BankMaterial, or_(BankMaterial.managed == True, BankMaterial.owner_id == owner)),
+             (BankExercise, BankExercise.material_id.in_(material_ids))]
+    execute_state.statement = execute_state.statement.options(*[
+        with_loader_criteria(model, condition, include_aliases=True) for model, condition in rules])
+
+
+def migrate_ownership_columns():
+    """Additive, repeatable migration; existing teacher records are never made public."""
+    for table, column in [('zhiyu_articles','owner_id'), ('zhiyu_bank_materials','owner_id'),
+                          ('zhiyu_login_sessions','admin_id')]:
+        if column not in {x['name'] for x in inspect(engine).get_columns(table)}:
+            with engine.begin() as connection:
+                connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} INTEGER NULL'))
+    if 'author' not in {x['name'] for x in inspect(engine).get_columns('zhiyu_articles')}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE zhiyu_articles ADD COLUMN author VARCHAR(100) NOT NULL DEFAULT ''"))
+    for model in [Article, BankMaterial]:
+        for index in model.__table__.indexes:
+            if any(column.name == 'owner_id' for column in index.columns): index.create(engine, checkfirst=True)
+
+
+def adopt_legacy_records(db):
+    legacy = db.scalar(select(Admin).where(Admin.username == os.getenv('ZHIYU_LEGACY_OWNER', os.getenv('ZHIYU_ADMIN_USER','teacher'))))
+    pending = db.scalar(select(Article.id).where(Article.owner_id == None).limit(1)) is not None or db.scalar(
+        select(BankMaterial.id).where(BankMaterial.managed == False, BankMaterial.owner_id == None).limit(1)) is not None
+    if pending and not legacy:
+        raise RuntimeError('旧资料缺少归属，请用 ZHIYU_LEGACY_OWNER 指定原教师账号；未将资料公开。')
+    if pending:
+        for article in db.scalars(select(Article).where(Article.owner_id == None)): article.owner_id = legacy.id
+        for material in db.scalars(select(BankMaterial).where(BankMaterial.managed == False, BankMaterial.owner_id == None)): material.owner_id = legacy.id
+    # Old cookies did not identify an account. Invalidate them instead of guessing their owner.
+    db.execute(delete(LoginSession).where(LoginSession.admin_id == None))
 
 
 def bank_exercise_dict(row):
@@ -173,12 +227,15 @@ def verify(password, stored):
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)
+    migrate_ownership_columns()
     with DB() as db:
         if not db.scalar(select(Admin)):
             password = os.getenv('ZHIYU_ADMIN_PASSWORD', '')
             if len(password) < 12:
                 raise RuntimeError('首次启动需设置 ZHIYU_ADMIN_PASSWORD（至少12位）；不要使用服务器登录密码。')
             db.add(Admin(username=os.getenv('ZHIYU_ADMIN_USER', 'teacher'), password_hash=digest(password)))
+        db.flush()
+        adopt_legacy_records(db)
         seed_material_bank(db)
         db.commit()
     yield
@@ -211,8 +268,10 @@ def db_session():
 def teacher(request: Request, db: Session = Depends(db_session)):
     raw = request.cookies.get('zhiyu_session', '')
     row = db.get(LoginSession, hashlib.sha256(raw.encode()).hexdigest())
-    if not row or row.expires < time.time():
+    if not row or row.expires < time.time() or not row.admin_id or not db.get(Admin,row.admin_id):
         raise HTTPException(401, '请先登录教师账号')
+    db.info['owner_id'] = row.admin_id
+    return db.get(Admin,row.admin_id)
 
 class InputModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
@@ -238,10 +297,33 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     attempts.pop(key, None)
     token = secrets.token_urlsafe(32)
     db.execute(delete(LoginSession).where(LoginSession.expires < int(now)))
-    db.add(LoginSession(token=hashlib.sha256(token.encode()).hexdigest(), expires=int(now)+43200))
+    db.add(LoginSession(token=hashlib.sha256(token.encode()).hexdigest(), expires=int(now)+43200, admin_id=admin.id))
     db.commit()
     response.set_cookie('zhiyu_session', token, httponly=True, secure=SECURE, samesite='strict', max_age=43200)
     return {'ok': True}
+
+class RegisterIn(LoginIn):
+    username: str = Field(min_length=2, max_length=40, pattern=r'^[A-Za-z0-9_\u4e00-\u9fff.-]+$')
+    password: str = Field(min_length=12, max_length=200)
+
+
+@app.post('/api/register')
+def register(body: RegisterIn, request: Request, response: Response, db: Session = Depends(db_session)):
+    key = request.client.host if request.client else 'local'
+    now = time.time()
+    attempts[key] = [t for t in attempts.get(key, []) if now-t < 300]
+    if len(attempts[key]) >= 10: raise HTTPException(429,'尝试过多，请五分钟后重试')
+    attempts[key].append(now)
+    if db.scalar(select(Admin).where(Admin.username == body.username)):
+        raise HTTPException(409,'账号名已被使用')
+    from sqlalchemy.exc import IntegrityError
+    db.add(Admin(username=body.username,password_hash=digest(body.password)))
+    try: db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409,'账号名已被使用') from None
+    return login(LoginIn(username=body.username,password=body.password),request,response,db)
+
 
 @app.post('/api/logout', dependencies=[Depends(teacher)])
 def logout(request: Request, response: Response, db: Session = Depends(db_session)):
@@ -263,7 +345,8 @@ def require(db, model, id):
 @app.get('/api/workspace', dependencies=[Depends(teacher)])
 def workspace(db: Session = Depends(db_session)):
     return {
-        'articles': [rowdict(x, 'id title genre content') for x in db.scalars(select(Article).order_by(Article.id.desc()))],
+        'user': {'username': db.get(Admin,db.info['owner_id']).username},
+        'articles': [rowdict(x, 'id title author genre content') for x in db.scalars(select(Article).order_by(Article.id.desc()))],
         'points': [{**rowdict(x, 'id article_id name description'), 'categories':knowledge.categories(x.name,x.description)} for x in db.scalars(select(Point))],
         'questions': [rowdict(x, 'id point_id level material prompt reference rubric max_score') for x in db.scalars(select(Question))],
         'assignments': [rowdict(x, 'id token question_id student created parent_id') for x in db.scalars(select(Assignment).order_by(Assignment.id.desc()))],
@@ -271,13 +354,20 @@ def workspace(db: Session = Depends(db_session)):
     }
 
 class ArticleIn(InputModel):
+    author: str = Field(default='', max_length=100)
     title: str = Field(min_length=1, max_length=200)
     genre: str = Field(pattern='^(阅读|诗歌|文言文)$')
     content: str = Field(min_length=1, max_length=100000)
 
+    @field_validator('content')
+    @classmethod
+    def fit_database_text(cls,value):
+        if len(value.encode('utf-8')) > 65000: raise ValueError('正文最多65000字节，请拆分为章节或选段录入')
+        return value
+
 @app.post('/api/articles', dependencies=[Depends(teacher)])
 def add_article(body: ArticleIn, db: Session = Depends(db_session)):
-    row = Article(**body.model_dump()); db.add(row); db.commit()
+    row = Article(**body.model_dump(), owner_id=db.info['owner_id']); db.add(row); db.commit()
     return {'id': row.id}
 
 class PointIn(InputModel):
@@ -377,7 +467,7 @@ def open_catalog(entry_id: str, db: Session = Depends(db_session)):
         raise HTTPException(409, '此篇尚未内置可用原文，可先查看原创导读与官方阅读入口；导读不能代替原文进行引文分析')
     article = db.scalar(select(Article).where(Article.title == entry['title'], Article.content == entry['content'], Article.genre == entry['genre']))
     if not article:
-        article = Article(title=entry['title'], content=entry['content'], genre=entry['genre'])
+        article = Article(title=entry['title'], content=entry['content'], genre=entry['genre'], author=entry['author'], owner_id=db.info['owner_id'])
         db.add(article)
         db.commit()
     return {'id': article.id, 'has_analysis': entry['has_analysis']}
@@ -492,7 +582,7 @@ def open_bank_material(id:str,db:Session=Depends(db_session)):
     row=require(db,BankMaterial,id)
     article=db.scalar(select(Article).where(Article.title==row.title,Article.genre==row.genre,Article.content==row.body))
     if not article:
-        article=Article(title=row.title,genre=row.genre,content=row.body)
+        article=Article(title=row.title,genre=row.genre,content=row.body,author=row.author,owner_id=db.info['owner_id'])
         db.add(article);db.commit()
     return {'id':article.id,'has_analysis':bool(material_notes(row))}
 
@@ -563,7 +653,7 @@ def import_bank(body:BankImportIn,db:Session=Depends(db_session)):
                 record=bank.material_record('import:'+secrets.token_hex(16),item.title,item.author,item.genre,item.source_type,
                     item.body,source_url,item.source_label,[],[],year=item.year,region=item.region,tags=list(dict.fromkeys(item.tags)),
                     review='教师导入，来源及考试分类未外部核验')
-                row=BankMaterial(id=record['id'],managed=False)
+                row=BankMaterial(id=record['id'],managed=False,owner_id=db.info['owner_id'])
                 assign_bank_material(row,record);db.add(row);db.flush();created+=1
             else:
                 row.tags_json=json.dumps(list(dict.fromkeys(json.loads(row.tags_json)+item.tags)),ensure_ascii=False)

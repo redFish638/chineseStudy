@@ -82,14 +82,14 @@ def test_rule_bank_material_can_be_previewed_confirmed_and_recommended_with_hone
 
 
 def test_existing_unmanaged_import_without_notes_gets_read_only_aids_without_overwrite(teacher_client):
-    from backend.main import DB,BankMaterial
+    from backend.main import DB,BankMaterial,adopt_legacy_records
     c=teacher_client
     with DB() as db:
         record=bank.material_record('old-import','校本旧导入','教师','诗歌','bank','月照山间水，风鸣竹里窗。','','教师提供',[],[])
         row=BankMaterial(id=record['id'],managed=False)
         from backend.main import assign_bank_material
         assign_bank_material(row,record)
-        row.notes_json='[]';row.tags_json='[]';row.review='原有审核说明';db.add(row);db.commit()
+        row.notes_json='[]';row.tags_json='[]';row.review='原有审核说明';db.add(row);db.flush();adopt_legacy_records(db);db.commit()
     detail=c.get('/api/bank/materials/old-import').json()
     assert detail['notes'] and all(n['origin']=='rule' for n in detail['notes'])
     opened=c.post('/api/bank/materials/old-import/open').json()
