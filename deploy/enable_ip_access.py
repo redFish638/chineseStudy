@@ -1,5 +1,6 @@
 """Enable the requested HTTP/IP trial entry without replacing other nginx sites."""
 import ipaddress
+import json
 import os
 from pathlib import Path
 import re
@@ -8,21 +9,39 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 
 def run(*args):
     return subprocess.run(args, check=True)
 
 
-def ready():
-    for _ in range(30):
+# All checks target loopback. They must not inherit HTTP proxy settings.
+LOCAL_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def wait_http(url, host=None, homepage=False, timeout=30):
+    deadline = time.monotonic()+timeout
+    last = '尚无响应'
+    while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=2) as r:
-                if r.status == 200:
+            request = urllib.request.Request(url, headers={'Host': host} if host else {})
+            with LOCAL_HTTP.open(request, timeout=2) as response:
+                body = response.read(200000).decode('utf-8')
+                valid = ('知语' in body and 'app.js' in body) if homepage else json.loads(body).get('status') == 'ok'
+                if response.status == 200 and valid:
                     return
-        except OSError:
-            time.sleep(1)
-    raise RuntimeError('应用健康检查未通过')
+                last = '响应不是预期的知语页面或健康状态'
+        except urllib.error.HTTPError as exc:
+            last = 'HTTP '+str(exc.code)
+        except (OSError, ValueError, AttributeError) as exc:
+            last = type(exc).__name__
+        time.sleep(0.1)
+    raise RuntimeError('本机入口就绪检查超时：'+last)
+
+
+def ready():
+    wait_http('http://127.0.0.1:8001/api/health')
 
 
 def main():
@@ -63,33 +82,52 @@ server {
     }
 }
 '''.replace('IP_PLACEHOLDER', ip)
+    stage = '写入 Nginx 站点'
+    created_available = created_enabled = False
     try:
         with available.open('x') as f:
             f.write(config)
+        created_available = True
         enabled.symlink_to(available)
+        created_enabled = True
+        stage = '检查 Nginx 配置语法'
         run('nginx', '-t')
         lines = [line for line in old_env.splitlines() if not re.match(r'^\s*(PUBLIC_ORIGIN|COOKIE_SECURE)\s*=', line)]
         new_env = '\n'.join(lines)+f'\nPUBLIC_ORIGIN="http://{ip}"\nCOOKIE_SECURE="false"\n'
         with envfile.open('w') as f:
             f.write(new_env)
         os.chmod(envfile, 0o600)
+        stage = '重新启动知语后台'
         run('systemctl', 'restart', 'zhiyu')
         ready()
+        stage = '启动和重载 Nginx'
         run('systemctl', 'enable', '--now', 'nginx')
         run('systemctl', 'reload', 'nginx')
-        for path in ('/', '/api/health'):
-            req = urllib.request.Request('http://127.0.0.1'+path, headers={'Host': ip})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status != 200:
-                    raise RuntimeError('网页入口检查失败')
-    except BaseException:
-        envfile.write_text(old_env)
-        os.chmod(envfile, 0o600)
-        enabled.unlink(missing_ok=True)
-        available.unlink(missing_ok=True)
-        subprocess.run(['systemctl', 'restart', 'zhiyu'], check=False)
-        subprocess.run(['systemctl', 'reload', 'nginx'], check=False)
-        raise SystemExit('入口配置未完成，已尝试恢复原配置。请反馈报错，不要重复初始化数据库。')
+        # Reload is graceful: old workers may still answer until new workers are ready.
+        stage = '等待 Nginx 新配置提供知语入口'
+        wait_http('http://127.0.0.1/api/health', host=ip)
+        wait_http('http://127.0.0.1/', host=ip, homepage=True)
+    except BaseException as exc:
+        reason = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+        print('失败阶段：'+stage, file=sys.stderr)
+        print('诊断：'+reason, file=sys.stderr)
+        rollback_errors = []
+        try:
+            envfile.write_text(old_env)
+            os.chmod(envfile, 0o600)
+            if created_enabled:
+                enabled.unlink(missing_ok=True)
+            if created_available:
+                available.unlink(missing_ok=True)
+        except OSError:
+            rollback_errors.append('配置文件恢复失败')
+        for service_action in [('restart', 'zhiyu'), ('reload', 'nginx')]:
+            result = subprocess.run(['systemctl', *service_action], check=False)
+            if result.returncode:
+                rollback_errors.append(' '.join(service_action)+' 失败')
+        if rollback_errors:
+            print('回滚需检查：'+'；'.join(rollback_errors), file=sys.stderr)
+        raise SystemExit('入口配置未完成，已尝试恢复原配置。请保留以上诊断，不要重新初始化数据库。')
     print('IP 网页入口的本机转发检查通过：http://'+ip)
     print('应用后台仍仅监听 127.0.0.1:8001，无需开放8001端口。')
     print('请在自己的浏览器打开上述地址，使用 teacher 和自行设置的密码登录。')
