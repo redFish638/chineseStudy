@@ -625,9 +625,8 @@ def question_library(article: str = '', knowledge_id: str = '', q: str = '', lev
     index=question_link_index(db)
     if article and article not in index['articles']: raise HTTPException(404,'文章不存在')
     if knowledge_id and knowledge_id not in index['knowledge']: raise HTTPException(404,'知识点不存在')
-    if knowledge_id and not article: raise HTTPException(422,'请先选择文章')
     article_tags=set(index['articles'][article]['categories']) if article else set()
-    if knowledge_id and knowledge_id not in article_tags: raise HTTPException(422,'请选择本篇文章关联的知识点')
+    if article and knowledge_id and knowledge_id not in article_tags: raise HTTPException(422,'请选择本篇文章关联的知识点')
     selected_tags={knowledge_id} if knowledge_id else article_tags
     keyword=bank.normalized(q)
     rows=[item for item in index['questions'].values()
@@ -637,7 +636,7 @@ def question_library(article: str = '', knowledge_id: str = '', q: str = '', lev
               index['articles'][item['article']['id']]['author']+' '+' '.join(c['name'] for c in item['knowledge'])))]
     rows.sort(key=lambda item:(item['article']['title'],{'基础':0,'巩固':1,'拓展':2}.get(item['level'],3),item['id']))
     articles=sorted((question_links.article_summary(a) for a in index['articles'].values()), key=lambda a:a['title'])
-    categories=sorted((question_links.knowledge_summary(c) for c in index['knowledge'].values() if c['id'] in article_tags),key=lambda c:c['name'])
+    categories=sorted((question_links.knowledge_summary(c) for c in index['knowledge'].values() if not article or c['id'] in article_tags),key=lambda c:c['name'])
     return dict(items=[question_links.question_summary(item) for item in rows[offset:offset+limit]],
                 total=len(rows),offset=offset,limit=limit,articles=articles,knowledge=categories,stats=index['stats'])
 
